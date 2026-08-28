@@ -56,6 +56,10 @@ DATASETS = {
                                "first_name", "last_name", "gsis_id", "week")),
     "depth_charts": Dataset("depth_charts", "depth_charts", "depth_charts_{season}.parquet", True,
                             ("team", "player_name", "gsis_id", "pos_abb", "pos_rank")),
+    # Comprehensive cross-source ID crosswalk. Maps pfr_id -> gsis_id at 99.7%
+    # coverage on 2025 snap counts; weekly rosters only manage 65.9%.
+    "players": Dataset("players", "players", "players.parquet", False,
+                       ("gsis_id", "pfr_id", "display_name", "position")),
     "schedules": Dataset("schedules", "schedules", "games.parquet", False,
                          ("game_id", "season", "week", "gameday", "weekday", "gametime",
                           "away_team", "home_team", "roof", "surface", "stadium")),

@@ -208,3 +208,49 @@ splits:
 
 `games_in_last_6` firing on short weeks is correct and is the signal -- it flags
 exactly the 39 games played on 4-5 days rest.
+
+---
+
+### D13. Usage features: the target denominator must require a receiver
+
+`target_share` is the core opportunity metric, so its denominator has to be exact.
+Counting all pass plays includes sacks and throwaways, which have no
+`receiver_player_id`; shares then sum to **0.885** per team-game instead of 1.0.
+Fixed to count only pass plays with an intended receiver. Now sums to 1.0 to within
+1e-9, and pbp-derived targets/receptions match nflverse's official weekly stat lines
+exactly across the 2025 season -- two independent products agreeing.
+
+`air_yards_share` legitimately exceeds 1.0 and must NOT be clamped. Air yards are
+signed (screens are negative), so a deep threat can hold more than his team's net
+total. Clamping would distort WOPR.
+
+Route participation is deliberately absent: it needs FTN charting data with its own
+coverage gaps, and a fabricated proxy would be worse than the gap (Section 0 rule 3).
+
+---
+
+### D14. With/without splits are confounded, and the tool says so
+
+This is the signal Section 5.2 calls most exploitable, and the one most able to
+manufacture confident losing bets.
+
+**Sample discipline.** Of 6,247 (player, teammate) pairs in 2025, 85% are suppressed
+on sample size and only 1.3% are both unsuppressed and significant at 95%. That is
+the honest base rate. Suppressed rows are returned flagged, never dropped.
+
+**Availability comes from snap counts, not targets.** A receiver who played 40 snaps
+and drew zero targets is present. Inferring absence from missing targets would
+manufacture the exact effect being measured. This required a pfr_id -> gsis_id
+crosswalk: the `players` release maps them at **99.7%**, weekly rosters only 65.9%.
+
+**Position gate.** Before restricting teammates to skill positions, two of the five
+largest 2025 splits were driven by OFFENSIVE TACKLES. An OT's absence has no
+mechanism to free targets -- those games merely coincided with other injuries.
+
+**Residual confounding is measured, not hidden.** Pairwise splits still attribute
+joint absences to each teammate separately. `confound_regulars_out` reports the mean
+number of other regulars absent in the "without" games, and it discriminates sharply:
+the largest 2025 split (Michael Wilson without Marvin Harrison Jr., +17.7pp) has
+**4.6** other regulars out, while Drake London without Kirk Cousins (+13.0pp) has
+**1.3**. The smaller delta is the more trustworthy read. Proper causal attribution
+needs a multivariate model and is deliberately not claimed here.
