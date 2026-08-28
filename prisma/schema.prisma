@@ -1,0 +1,248 @@
+// Bet Daddy — Postgres (Neon) holds ENGINEERED outputs only.
+// Raw play-by-play and box scores stay in Parquet and are queried with DuckDB
+// (Section 6): Neon's free tier is ~0.5GB and 25 seasons of pbp will not fit.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Sport {
+  nfl
+  nba
+}
+
+enum MatchMethod {
+  EXACT
+  FALLBACK
+  MANUAL
+  UNRESOLVED
+}
+
+enum Tier {
+  UNVALIDATED
+  PROVISIONAL
+  VALIDATED
+}
+
+enum RunStatus {
+  ok
+  pending
+  error
+}
+
+// ---------------------------------------------------------------- identity
+model Team {
+  id       String  @id
+  sport    Sport
+  abbrev   String
+  name     String
+  conference String?
+  division   String?
+  venue      String?
+  timezone   String?
+  altitudeFt Int?
+  players  Player[]
+  @@unique([sport, abbrev])
+}
+
+model Player {
+  id          String   @id @default(cuid())
+  sport       Sport
+  fullName    String
+  position    String?
+  teamId      String?
+  team        Team?    @relation(fields: [teamId], references: [id])
+  gsisId      String?  @unique          // nflverse
+  nbaPersonId Int?     @unique
+  externalIds Json     @default("{}")   // espn, pfr, sleeper, sportradar...
+  aliases     PlayerAlias[]
+  source      String
+  ingestedAt  DateTime @default(now())
+  @@index([sport, fullName])
+}
+
+/// Every Kalshi player key ever seen, resolved or not.
+/// Section 12 says log unmatched names loudly — a queryable table beats a log line.
+model PlayerAlias {
+  id         String      @id @default(cuid())
+  source     String                      // "kalshi"
+  rawKey     String                      // "SFBPURDY13"
+  team       String
+  firstInit  String
+  surname    String
+  jerseyNum  Int?
+  playerId   String?
+  player     Player?     @relation(fields: [playerId], references: [id])
+  method     MatchMethod
+  confidence Float
+  firstSeen  DateTime    @default(now())
+  lastSeen   DateTime    @updatedAt
+  @@unique([source, rawKey])
+  @@index([playerId])
+  @@index([method])                      // drives the "needs review" queue
+}
+
+// ---------------------------------------------------------------- games
+model Game {
+  id          String   @id
+  sport       Sport
+  season      Int
+  week        Int?
+  gameDate    DateTime
+  kickoffUtc  DateTime?
+  homeTeamId  String
+  awayTeamId  String
+  venue       String?
+  roof        String?
+  surface     String?
+  isNeutral   Boolean  @default(false)
+  contexts    GameContext[]
+  source      String
+  ingestedAt  DateTime @default(now())
+  @@index([sport, season, week])
+  @@index([gameDate])
+}
+
+model GameContext {
+  id                  String  @id @default(cuid())
+  gameId              String
+  game                Game    @relation(fields: [gameId], references: [id])
+  teamId              String
+  daysRest            Int?
+  isB2b               Boolean @default(false)
+  b2bLeg              Int?
+  gamesInLast4        Int?
+  gamesInLast6        Int?
+  travelMiles         Float?
+  tzShift             Int?
+  isPostBye           Boolean @default(false)
+  isShortWeek         Boolean @default(false)
+  altitudeFt          Int?
+  windMph             Float?
+  tempF               Float?
+  precip              Float?
+  projectedTotal      Float?
+  projectedSpread     Float?
+  projectedPossessions Float?
+  source              String
+  ingestedAt          DateTime @default(now())
+  @@unique([gameId, teamId])
+}
+
+// ---------------------------------------------------------------- market archive
+/// Append-only. Kalshi does NOT retain settled prop markets across seasons
+/// (verified 2026-08-28: zero 2025-season prop markets reachable). Price history not
+/// captured here can never be recovered, at any price.
+model MarketSnapshot {
+  id           BigInt   @id @default(autoincrement())
+  marketTicker String
+  seriesTicker String
+  eventTicker  String?
+  sport        Sport
+  marketType   String
+  ts           DateTime
+  // Kalshi returns decimal strings. Money is never a float.
+  yesBid       Decimal? @db.Decimal(6, 4)
+  yesAsk       Decimal? @db.Decimal(6, 4)
+  lastPrice    Decimal? @db.Decimal(6, 4)
+  volume       Decimal? @db.Decimal(18, 4)
+  openInterest Decimal? @db.Decimal(18, 4)
+  strike       Float?
+  status       String?
+  closeTime    DateTime?
+  /// precomputed because the T-60 reconstruction is the hottest backtest query
+  minsToClose  Int?
+  result       String?
+  orderbook    Json?
+  source       String
+  ingestedAt   DateTime @default(now())
+  @@unique([marketTicker, ts])
+  @@index([marketTicker, minsToClose])
+  @@index([sport, marketType, ts])
+}
+
+model MarketSettlement {
+  marketTicker    String   @id
+  settledTs       DateTime
+  result          String
+  settlementValue Decimal? @db.Decimal(18, 4)
+  source          String
+  ingestedAt      DateTime @default(now())
+}
+
+// ---------------------------------------------------------------- model output
+model Projection {
+  id           String   @id @default(cuid())
+  playerId     String
+  gameId       String
+  marketType   String
+  modelVersion String
+  runTs        DateTime
+  mean         Float
+  stdev        Float
+  distribution Json     // percentiles
+  pOverByStrike Json    // strike -> P(over)
+  /// point-in-time guard: no feature used here may postdate this timestamp
+  featureAsOf  DateTime
+  signals      Signal[]
+  source       String
+  ingestedAt   DateTime @default(now())
+  @@index([playerId, gameId, marketType])
+  @@index([runTs])
+}
+
+model Signal {
+  id            String   @id @default(cuid())
+  projectionId  String
+  projection    Projection @relation(fields: [projectionId], references: [id])
+  marketTicker  String
+  runTs         DateTime
+  modelProb     Decimal  @db.Decimal(6, 4)
+  marketProb    Decimal  @db.Decimal(6, 4)
+  /// stored, not recomputed at read time, so the Why panel shows what was actually used
+  feeCents      Decimal  @db.Decimal(8, 4)
+  edgeCentsNet  Decimal  @db.Decimal(8, 4)
+  kellyFraction Decimal  @db.Decimal(6, 4)
+  tier          Tier
+  /// n behind the tier. Section 2: sample size is always rendered.
+  sampleN       Int
+  reason        Json     // ordered named multipliers -> Why panel
+  modelVersion  String
+  featureAsOf   DateTime
+  result        SignalResult?
+  source        String
+  ingestedAt    DateTime @default(now())
+  @@index([marketTicker, runTs])
+  @@index([tier, runTs])
+}
+
+model SignalResult {
+  signalId      String    @id
+  signal        Signal    @relation(fields: [signalId], references: [id])
+  closingPrice  Decimal?  @db.Decimal(6, 4)
+  /// computable at close, before settlement — the primary forward-test metric
+  clvCents      Decimal?  @db.Decimal(8, 4)
+  settledResult String?
+  pnlIfBet      Decimal?  @db.Decimal(10, 4)
+  gradedTs      DateTime?
+}
+
+// ---------------------------------------------------------------- ops
+/// Section 12: stale pipeline runs must surface in the UI, never serve silently.
+model PipelineRun {
+  id          String    @id @default(cuid())
+  job         String
+  startedAt   DateTime
+  finishedAt  DateTime?
+  status      RunStatus
+  rowsWritten Int       @default(0)
+  error       String?
+  meta        Json?
+  @@index([job, startedAt])
+}

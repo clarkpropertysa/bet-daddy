@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "betdaddy-pipeline"
+version = "0.1.0"
+description = "Bet Daddy: NFL/NBA player-prop research pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb>=1.1",
+    "polars>=1.0",
+    "pyarrow>=17",
+    "pandas>=2.2",
+    "requests>=2.32",
+    "cryptography>=43",
+    "psycopg[binary]>=3.2",
+    "python-dotenv>=1.0",
+    "tenacity>=9.0",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "scikit-learn>=1.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipeline"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-cov>=5.0", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["network: hits a live external API"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,44 @@
+# The single most time-critical job in this repo.
+#
+# Kalshi does not retain settled player-prop markets across seasons (verified
+# 2026-08-28: zero 2025-season prop markets were reachable via the API). Price
+# history not captured here is gone permanently — it cannot be bought or backfilled.
+# Every 15 minutes, forever, starting now.
+name: archive-markets
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: archive-markets
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --all-extras
+
+      - name: Snapshot open Kalshi prop markets
+        env:
+          KALSHI_API_BASE: ${{ vars.KALSHI_API_BASE || 'https://api.elections.kalshi.com/trade-api/v2' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m pipeline.ingest.kalshi_archiver --sports nfl,nba
+
+      # Parquet first, DB second: a database outage must never cost us the data.
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-snapshots-${{ github.run_id }}
+          path: data/archive/market_snapshots/
+          retention-days: 90
+          if-no-files-found: error

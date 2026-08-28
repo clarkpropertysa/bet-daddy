@@ -1,0 +1,24 @@
+# Kalshi's ticker taxonomy changes (Section 12). Discovery runs on a schedule so a
+# renamed or newly-added prop series shows up as a diff, not as a silent zero-row feed.
+name: discover-series
+
+on:
+  schedule:
+    - cron: "0 12 * * 1"   # Mondays
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - run: uv run python -m pipeline.ingest.kalshi_discovery
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kalshi-series-${{ github.run_id }}
+          path: data/kalshi_series.json

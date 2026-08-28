@@ -1,0 +1,32 @@
+# secrets — never commit
+.env
+.env.local
+.env*.local
+*.pem
+.kalshi/
+
+# data: raw layer stays out of git (Section 6 — Parquet, not Postgres, not repo)
+data/raw/**
+data/cache/**
+!data/raw/.gitkeep
+!data/archive/.gitkeep
+
+# the market archive is irreplaceable: keep it locally, sync to object storage,
+# but do not bloat git with it
+data/archive/**/*.parquet
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+.next/
+out/
+.vercel
+
+# os
+.DS_Store

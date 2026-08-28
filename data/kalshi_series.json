@@ -1,0 +1,1816 @@
+{
+  "discovered_at": "2026-08-28T16:44:19.013509+00:00",
+  "sports_series_total": 3585,
+  "series": [
+    {
+      "ticker": "KXNFLPASSYDS",
+      "sport": "nfl",
+      "market_type": "pass_yds",
+      "title": "Pro Football Passing Yards",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLRECYDS",
+      "sport": "nfl",
+      "market_type": "rec_yds",
+      "title": "Pro Football Receiving Yards",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLRSHYDS",
+      "sport": "nfl",
+      "market_type": "rush_yds",
+      "title": "Pro Football Rushing Yards",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLREC",
+      "sport": "nfl",
+      "market_type": "receptions",
+      "title": "Pro Football Player Receptions",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLPASSTDS",
+      "sport": "nfl",
+      "market_type": "pass_tds",
+      "title": "Pro Football player Passing Touchdowns",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLANYTD",
+      "sport": "nfl",
+      "market_type": "anytime_td",
+      "title": "Pro Football Anytime Touchdown",
+      "fee_type": "quadratic_with_maker_fees",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLPASSINT",
+      "sport": "nfl",
+      "market_type": "pass_int",
+      "title": "Pro Football Passing Interceptions",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLSACK",
+      "sport": "nfl",
+      "market_type": "sacks",
+      "title": "Pro Football Sacks",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNFLLONGESTREC",
+      "sport": "nfl",
+      "market_type": "longest_rec",
+      "title": "Longest Reception",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBAPTS",
+      "sport": "nba",
+      "market_type": "points",
+      "title": "Pro Basketball Player Points",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBAREB",
+      "sport": "nba",
+      "market_type": "rebounds",
+      "title": "Pro Basketball Player Rebounds",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBAAST",
+      "sport": "nba",
+      "market_type": "assists",
+      "title": "Pro Basketball Player Assists",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBA3PT",
+      "sport": "nba",
+      "market_type": "threes",
+      "title": "Pro Basketball Player Threes",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBAPRA",
+      "sport": "nba",
+      "market_type": "pra",
+      "title": "Pro Basketball Player Points + Rebounds + Assists",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBABLK",
+      "sport": "nba",
+      "market_type": "blocks",
+      "title": "Pro Basketball Player Blocks",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    },
+    {
+      "ticker": "KXNBASTL",
+      "sport": "nba",
+      "market_type": "steals",
+      "title": "Pro Basketball Player Steals",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "present": true
+    }
+  ],
+  "unmapped_candidates": [
+    {
+      "ticker": "KXNFL2H",
+      "title": "Pro Football 2nd Half"
+    },
+    {
+      "ticker": "KXNFLWINS-NO",
+      "title": "Pro football wins New Orleans"
+    },
+    {
+      "ticker": "KXNFLPROBOWL",
+      "title": "Pro Football Pro Bowl"
+    },
+    {
+      "ticker": "KXNFLNFCEAST",
+      "title": "National Football Conference East Winner"
+    },
+    {
+      "ticker": "KXNFLDRAFTTOP",
+      "title": "Pro Football Top Draft"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSNE",
+      "title": "Pro football exact wins New England"
+    },
+    {
+      "ticker": "KXNFL3QTOTAL",
+      "title": "Pro Football 3rd Quarter Total"
+    },
+    {
+      "ticker": "KXNFLPREPACK2ML",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNFL1HTOTAL",
+      "title": "Pro Football 1st  Half Total Points"
+    },
+    {
+      "ticker": "KXNBA30COMEBACK",
+      "title": "NBA 3-0 Series Comeback"
+    },
+    {
+      "ticker": "KXNFLGAMESPECIALS",
+      "title": "Pro Football Game Specials"
+    },
+    {
+      "ticker": "KXNFLAFCNORTH",
+      "title": "American Football Conference North Winner"
+    },
+    {
+      "ticker": "KXNFLDRAFTWR",
+      "title": "Pro Football Wide Receiver Drafted "
+    },
+    {
+      "ticker": "KXNBALOTTERYODDS",
+      "title": "NBA Lottery Winner Odds"
+    },
+    {
+      "ticker": "KXNFLAFCSOUTH",
+      "title": "American Football Conference South Winner"
+    },
+    {
+      "ticker": "KXNBA3PEAT",
+      "title": "Pro Basketball Three-Peat Champion"
+    },
+    {
+      "ticker": "KXNFLSEED",
+      "title": "NFL Playoff Seed"
+    },
+    {
+      "ticker": "KXNFLWINS-IND",
+      "title": "Pro football wins Indianapolis"
+    },
+    {
+      "ticker": "KXNFLWINS-LA",
+      "title": "Pro football wins Los Angeles R"
+    },
+    {
+      "ticker": "KXNFLWINSWEEK",
+      "title": "NFL wins by week"
+    },
+    {
+      "ticker": "KXNBADRAFT10",
+      "title": "NBA Draft Tenth Pick"
+    },
+    {
+      "ticker": "KXNFL1HFT",
+      "title": "1st Half Fulltime Result"
+    },
+    {
+      "ticker": "KXNBACUP",
+      "title": "Pro Basketball Cup Champion"
+    },
+    {
+      "ticker": "KXNBA2D",
+      "title": "Pro Basketball Player Double Double"
+    },
+    {
+      "ticker": "KXNBATEAMANNOUNCE",
+      "title": "Pro Basketball New Team Announce"
+    },
+    {
+      "ticker": "KXNBACENTRAL",
+      "title": "Pro Basketball Central Division Winner"
+    },
+    {
+      "ticker": "KXNBATEAMSALE",
+      "title": "Pro Basketball Team to be Sold"
+    },
+    {
+      "ticker": "KXNBAPA",
+      "title": "Pro Basketball Player Points + Assists"
+    },
+    {
+      "ticker": "KXNBA1HTOTAL",
+      "title": "Pro Basketball 1st Half Total Points"
+    },
+    {
+      "ticker": "KXNBA2HWINNER",
+      "title": "Pro Basketball 2nd Half Winner"
+    },
+    {
+      "ticker": "KXNBAWINS",
+      "title": "Pro Basketball Win Totals"
+    },
+    {
+      "ticker": "KXNFLDRAFTTEAM",
+      "title": "Pro Football Team Draft"
+    },
+    {
+      "ticker": "KXNBASPREAD",
+      "title": "Pro Basketball Spread"
+    },
+    {
+      "ticker": "KXNBAUNBEATEN",
+      "title": "NBA Playoffs Team to go Undefeated"
+    },
+    {
+      "ticker": "KXNFL3Q",
+      "title": "Pro Football 3rd Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLWINS-NYJ",
+      "title": "Pro football wins New York J"
+    },
+    {
+      "ticker": "KXNFLENDSTREAK",
+      "title": "When will team end streak"
+    },
+    {
+      "ticker": "KXNBAROOKIE2NDTEAM",
+      "title": "NBA All-Rookie 1st Team"
+    },
+    {
+      "ticker": "KXNBAPREPACK3ML",
+      "title": "3ML Basketball Combo"
+    },
+    {
+      "ticker": "KXNBASTAKESALE",
+      "title": "NBA Team Ownership Stake Sale Agreement"
+    },
+    {
+      "ticker": "KXNFLSBMVPDEF",
+      "title": "Defensive Player Championship MVP"
+    },
+    {
+      "ticker": "KXNFLLARGELEAD",
+      "title": "Pro Football Largest Lead"
+    },
+    {
+      "ticker": "KXNFLWINS-DEN",
+      "title": "Pro football wins Denver"
+    },
+    {
+      "ticker": "KXNBATOP3",
+      "title": "Pro Basketball Draft Lottery Top 3"
+    },
+    {
+      "ticker": "KXNBA2QSPREAD",
+      "title": "Pro Basketball 2nd Quarter Spread"
+    },
+    {
+      "ticker": "KXNFL2TD",
+      "title": "Pro Football Multiple Touchdowns"
+    },
+    {
+      "ticker": "KXNFLDIVISIONWINS",
+      "title": "Pro Football Division Total Wins"
+    },
+    {
+      "ticker": "KXNBAFINALSMVP",
+      "title": "Finals MVP"
+    },
+    {
+      "ticker": "KXNBAGAMESPECIALS",
+      "title": "Pro Basketball Game Specials"
+    },
+    {
+      "ticker": "KXNFLWINS-BUF",
+      "title": "Pro football wins Buffalo"
+    },
+    {
+      "ticker": "KXNFLAFCEAST",
+      "title": "American Football Conference East Winner"
+    },
+    {
+      "ticker": "KXNFLWINS-NYG",
+      "title": "Pro football wins New York G"
+    },
+    {
+      "ticker": "KXNFLTEAMPTS",
+      "title": "Who will most/least points in Regular Season"
+    },
+    {
+      "ticker": "KXNFLDPOTY",
+      "title": "AP Pro Football Defensive Player Of The Year"
+    },
+    {
+      "ticker": "KXNFLT100TOP",
+      "title": "Will player be ranked Top X on NFL 100"
+    },
+    {
+      "ticker": "KXNFLCOMEBACK",
+      "title": "Pro Football Comeback"
+    },
+    {
+      "ticker": "KXNFLNFCNORTH",
+      "title": "National Football Conference North Winner"
+    },
+    {
+      "ticker": "KXNFLWINS-HOU",
+      "title": "Pro football wins Houston"
+    },
+    {
+      "ticker": "KXNBAHALLOFFAME",
+      "title": "Pro Basketball Hall of Fame"
+    },
+    {
+      "ticker": "KXNBAEAST1SEED",
+      "title": "NBA Eastern Conference 1 Seed"
+    },
+    {
+      "ticker": "KXNBASOUTHWEST",
+      "title": "Pro Basketball Southwest Division Winner"
+    },
+    {
+      "ticker": "KXNFL2QSPREAD",
+      "title": "Pro Football 2nd Quarter Spread"
+    },
+    {
+      "ticker": "KXNBASUMMERSPREAD",
+      "title": "Pro Basketball Summer League Spread"
+    },
+    {
+      "ticker": "KXNFLREDZONEADS",
+      "title": "NFL Redzone ads"
+    },
+    {
+      "ticker": "KXNBALASVEGAS",
+      "title": "Las Vegas NBA team"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSCAR",
+      "title": "Pro football exact wins Carolina"
+    },
+    {
+      "ticker": "KXNFLDIVLEASTWINS",
+      "title": "Pro Football Division with the Most Wins"
+    },
+    {
+      "ticker": "KXNFLDRAFTCAT",
+      "title": "Pro Football Draft Category"
+    },
+    {
+      "ticker": "KXNFLWINS-TEN",
+      "title": "Pro football wins Tennessee"
+    },
+    {
+      "ticker": "KXNBAALLSTARGAME",
+      "title": "NBA All-Star Game Winner"
+    },
+    {
+      "ticker": "KXNFL2PTCONV",
+      "title": "Pro Football 2-Point Conversions"
+    },
+    {
+      "ticker": "KXNFLSPREAD",
+      "title": "Pro Football Spread"
+    },
+    {
+      "ticker": "KXNFLNFCSOUTH",
+      "title": "National Football Conference South Winner"
+    },
+    {
+      "ticker": "KXNFL2QTOTAL",
+      "title": "Pro Football 2nd Quarter Total"
+    },
+    {
+      "ticker": "KXNFLWINS-LV",
+      "title": "Pro football wins Las Vegas"
+    },
+    {
+      "ticker": "KXNBA2NDTEAM",
+      "title": "All-NBA 2nd Team"
+    },
+    {
+      "ticker": "KXNBATOP5ROTY",
+      "title": "Top 5 NBA draft ROTY"
+    },
+    {
+      "ticker": "KXNFLWINS-ANY",
+      "title": "Pro football wins any team"
+    },
+    {
+      "ticker": "KXNFLPREPACK1HFT",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNFLOPOY",
+      "title": "NFL Offensive Player of the Year"
+    },
+    {
+      "ticker": "KXNFLSUPDRAFTPICK",
+      "title": "Will Player declare for supplemental draft"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSKC",
+      "title": "Pro football exact wins Kansas City"
+    },
+    {
+      "ticker": "KXNBADPOY",
+      "title": "Pro Basketball Defensive Player of the Year"
+    },
+    {
+      "ticker": "KXNFL1HSPREAD",
+      "title": "Pro Football 1st Half Spread"
+    },
+    {
+      "ticker": "KXNFLWINS-MIN",
+      "title": "Pro football wins Minnesota"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP20",
+      "title": "NBA Draft Top 20 Pick"
+    },
+    {
+      "ticker": "KXNBA3D",
+      "title": "Pro Basketball Player Triple Double"
+    },
+    {
+      "ticker": "KXNBATEAM",
+      "title": "NBA team"
+    },
+    {
+      "ticker": "KXNBAFTM",
+      "title": "Pro Basketball Player Free Throws Made"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSNYJ",
+      "title": "Pro football exact wins New York J"
+    },
+    {
+      "ticker": "KXNBAFINALSVIEWERGAME7",
+      "title": "NBA finals viewership"
+    },
+    {
+      "ticker": "KXNFLREDZONEBRANDADS",
+      "title": "Redzone week 1 brand ads"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP5",
+      "title": "NBA Draft Top 5 Pick"
+    },
+    {
+      "ticker": "KXNFLWORSTTOFIRST",
+      "title": "Pro Football Worst in Division to First"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSNYG",
+      "title": "Pro football exact wins New York G"
+    },
+    {
+      "ticker": "KXNFLFIRSTTD",
+      "title": "Pro Football First Touchdown"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSDEN",
+      "title": "Pro football exact wins Denver"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSSF",
+      "title": "Pro football exact wins San Francisco"
+    },
+    {
+      "ticker": "KXNFLWPMOTY",
+      "title": "Walter Payton Man of the Year"
+    },
+    {
+      "ticker": "KXNBAECFQUAL",
+      "title": "Pro Basketball Eastern Conference Finals Qualifiers"
+    },
+    {
+      "ticker": "KXNBA4QSPREAD",
+      "title": "Pro Basketball 4th Quarter Spread"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSCHI",
+      "title": "Pro football exact wins Chicago"
+    },
+    {
+      "ticker": "KXNFLLEASTPENALIZED",
+      "title": "Pro Football Least Penalized Team"
+    },
+    {
+      "ticker": "KXNBADRAFTTEAM",
+      "title": "Pro Basketball Team to Draft"
+    },
+    {
+      "ticker": "KXNBADRAFTPICK",
+      "title": "Pro Basketball Draft Pick"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSWAS",
+      "title": "Pro football exact wins Washington"
+    },
+    {
+      "ticker": "KXNFLEXECOTY",
+      "title": "Pro Football Executive of the Year"
+    },
+    {
+      "ticker": "KXNBA3PTCONTEST",
+      "title": "NBA 3-Point Contest Winner"
+    },
+    {
+      "ticker": "KXNBAWEST1SEED",
+      "title": "NBA Western Conference 1 Seed"
+    },
+    {
+      "ticker": "KXNBACUPMVP",
+      "title": "Pro Basketball Cup Tournament MVP"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSIND",
+      "title": "Pro football exact wins Indianapolis"
+    },
+    {
+      "ticker": "KXNBASUMMER1HSPREAD",
+      "title": "Pro Basketball Summer League 1st Half Spread"
+    },
+    {
+      "ticker": "KXNBASOUTHEAST",
+      "title": "Pro Basketball Southeast Division Winner"
+    },
+    {
+      "ticker": "KXNFLDRAFTTEAMPOS",
+      "title": "Which team will draft a quarterback in specific round?"
+    },
+    {
+      "ticker": "KXNBADRAFT9",
+      "title": "NBA Draft Ninth Pick"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP25",
+      "title": "NBA Draft Top 25 Pick"
+    },
+    {
+      "ticker": "KXNBA1STTEAM",
+      "title": "All-NBA 1st Team"
+    },
+    {
+      "ticker": "KXNFLDSTTD",
+      "title": "Pro Football D/ST Touchdown"
+    },
+    {
+      "ticker": "KXNFLWINS-DET",
+      "title": "Pro football wins Detroit"
+    },
+    {
+      "ticker": "KXNFLCOMBINE",
+      "title": "NFL Combine"
+    },
+    {
+      "ticker": "KXNBAPIADVANCE",
+      "title": "NBA Play-In Team to Advance"
+    },
+    {
+      "ticker": "KXNFLDRAFT1",
+      "title": "NFL Draft First Pick"
+    },
+    {
+      "ticker": "KXNFLWINS-TB",
+      "title": "Pro football wins Tampa Bay"
+    },
+    {
+      "ticker": "KXNFL1SEED",
+      "title": "Will team win conference in regular season"
+    },
+    {
+      "ticker": "KXNFLFFTOP",
+      "title": "Top Fantasy Rank"
+    },
+    {
+      "ticker": "KXNFLNEXTTD",
+      "title": "Pro Football Next TD scorer"
+    },
+    {
+      "ticker": "KXNFLDEPTHPOSITIONCLEQB2",
+      "title": "QB2 CLE"
+    },
+    {
+      "ticker": "KXNBADRAFT1",
+      "title": "NBA Draft First Pick"
+    },
+    {
+      "ticker": "KXNFL1HWINNER",
+      "title": "NFL 1st Half Winner"
+    },
+    {
+      "ticker": "KXNFLGAMEFG",
+      "title": "Pro Football Field Goals"
+    },
+    {
+      "ticker": "KXNFLAFCCHAMP",
+      "title": "American Football Conference Champion"
+    },
+    {
+      "ticker": "KXNBANEXTTEAMCONF",
+      "title": "Pro Basketball Next Team Conference"
+    },
+    {
+      "ticker": "KXNFLDRAFTEDGE",
+      "title": "Pro Football Edge Drafted"
+    },
+    {
+      "ticker": "KXNFL1QTOTAL",
+      "title": "Pro Football 1st Quarter Total"
+    },
+    {
+      "ticker": "KXNFL4DOWNCONV",
+      "title": "Pro Football 4th Down Conversions"
+    },
+    {
+      "ticker": "KXNBAPLAYTOGETHER",
+      "title": "Pro Basketball Players to Play Together"
+    },
+    {
+      "ticker": "KXNFLWINS-SEA",
+      "title": "Pro football wins Seattle"
+    },
+    {
+      "ticker": "KXNBADRAFTOU",
+      "title": "Pro Basketball Players Draft Position"
+    },
+    {
+      "ticker": "KXNFL4QWINNER",
+      "title": "Pro Football 4th Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLHOFINDUCTEES",
+      "title": "Pro Football Hall of Fame Inductees"
+    },
+    {
+      "ticker": "KXNBADRAFTCONF",
+      "title": "Pro Basketball Players Drafted by Conference"
+    },
+    {
+      "ticker": "KXNBASTOCK",
+      "title": "Pro Basketball Player Steals + Blocks"
+    },
+    {
+      "ticker": "KXNFLHIRECOACH",
+      "title": "NFL hire coach"
+    },
+    {
+      "ticker": "KXNFL4QTOTAL",
+      "title": "Pro Football 4th Quarter Total"
+    },
+    {
+      "ticker": "KXNBARETIRE",
+      "title": "NBA Retirement"
+    },
+    {
+      "ticker": "KXNFL2HTOTAL",
+      "title": "Pro Football 2nd Half Total"
+    },
+    {
+      "ticker": "KXNBASUMMERGAME",
+      "title": "Pro Basketball Summer League Game"
+    },
+    {
+      "ticker": "KXNBAPLAYIN",
+      "title": "Which Team Will Make the Play-In Tournament"
+    },
+    {
+      "ticker": "KXNBACLUTCH",
+      "title": "Pro Basketball Clutch Player of the Year"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSBUF",
+      "title": "Pro football exact wins Buffalo"
+    },
+    {
+      "ticker": "KXNBA1HSPREAD",
+      "title": "Pro Basketball 1st Half Spread"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSBAL",
+      "title": "Pro football exact wins Baltimore"
+    },
+    {
+      "ticker": "KXNBADRAFT4",
+      "title": "NBA Draft Fourth Pick"
+    },
+    {
+      "ticker": "KXNBAROY",
+      "title": "Pro Basketball Rookie of the Year"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP10",
+      "title": "NBA Draft Top 10 Pick"
+    },
+    {
+      "ticker": "KXNBAATLANTIC",
+      "title": "Pro Basketball Atlantic Division Winner"
+    },
+    {
+      "ticker": "KXNFLPREPACK1Q1H",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNBAPOLOSE",
+      "title": "Pro Basketball Playoff Losses"
+    },
+    {
+      "ticker": "KXNBA",
+      "title": "Pro Basketball Champion"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSATL",
+      "title": "Pro football exact wins Atlanta"
+    },
+    {
+      "ticker": "KXNFL2HSPREAD",
+      "title": "Pro Football 2nd Half Spread"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSJAC",
+      "title": "Pro football exact wins Jacksonville"
+    },
+    {
+      "ticker": "KXNFLT100",
+      "title": "Will player be ranked on Pro Football T100 List"
+    },
+    {
+      "ticker": "KXNFLHIGHSCORE",
+      "title": "Pro Football Highest Scoring Game"
+    },
+    {
+      "ticker": "KXNFLSAFETY",
+      "title": "Pro Football Safeties"
+    },
+    {
+      "ticker": "KXNBAFINMVP",
+      "title": "Pro Basketball Finals MVP"
+    },
+    {
+      "ticker": "KXNBA1STTEAMDEF",
+      "title": "All-NBA Defensive 1st Team"
+    },
+    {
+      "ticker": "KXNFLVIEWERSHIP",
+      "title": "Pro Football Game Viewership"
+    },
+    {
+      "ticker": "KXNFLNEXTINT",
+      "title": "Pro Football Next Interception"
+    },
+    {
+      "ticker": "KXNFLWINS-BAL",
+      "title": "Pro football wins Baltimore"
+    },
+    {
+      "ticker": "KXNFLLONGREC",
+      "title": "Longest Reception"
+    },
+    {
+      "ticker": "KXNFLINT",
+      "title": "Pro Football Interceptions"
+    },
+    {
+      "ticker": "KXNFL4QSPREAD",
+      "title": "Pro Football 4th Quarter Spread"
+    },
+    {
+      "ticker": "KXNFLTEAMFIRSTTD",
+      "title": "Pro Football First Touchdown"
+    },
+    {
+      "ticker": "KXNBASLAMDUNK",
+      "title": "NBA Slam Dunk Contest Winner"
+    },
+    {
+      "ticker": "KXNFLDROY",
+      "title": "NFL Defensive Rookie of the Year"
+    },
+    {
+      "ticker": "KXNFL3QSPREAD",
+      "title": "Pro Football 3rd Quarter Spread"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSHOU",
+      "title": "Pro football exact wins Houston"
+    },
+    {
+      "ticker": "KXNFLMATCHUP",
+      "title": "Pro Football Matchups"
+    },
+    {
+      "ticker": "KXNFLOT",
+      "title": "Pro Football Overtime"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSSEA",
+      "title": "Pro football exact wins Seattle"
+    },
+    {
+      "ticker": "KXNFLTSPEC",
+      "title": "NFL Team Specials"
+    },
+    {
+      "ticker": "KXNBA3QSPREAD",
+      "title": "Pro Basketball 3rd Quarter Spread"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSPIT",
+      "title": "Pro football exact wins Pittsburgh"
+    },
+    {
+      "ticker": "KXNBACONF",
+      "title": "Pro Basketball Conference to Win the Championship"
+    },
+    {
+      "ticker": "KXNFLLONGESTTD",
+      "title": "Pro Football Longest Touchdown"
+    },
+    {
+      "ticker": "KXNBATEAMTOTAL",
+      "title": "NBA Team Total"
+    },
+    {
+      "ticker": "KXNBANEWCHAMPION",
+      "title": "Pro Basketball New Champion"
+    },
+    {
+      "ticker": "KXNBAMATCHUP",
+      "title": "Pro Basketball Who Will Team Match Up With"
+    },
+    {
+      "ticker": "KXNBAALLSTAR",
+      "title": "NBA All-Star game"
+    },
+    {
+      "ticker": "KXNFLNFCCHAMP",
+      "title": "National Football Conference Champion"
+    },
+    {
+      "ticker": "KXNFLWINS-ATL",
+      "title": "Pro football wins Atlanta"
+    },
+    {
+      "ticker": "KXNFL1QWINNER",
+      "title": "Pro Football 1st Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSCIN",
+      "title": "Pro football exact wins Cincinnati"
+    },
+    {
+      "ticker": "KXNBAPICKTRADE",
+      "title": "Pro Basketball Pick Trade"
+    },
+    {
+      "ticker": "KXNFL1YDPASS",
+      "title": "Seattle 1 Yard Pass"
+    },
+    {
+      "ticker": "KXNFLRETIRE",
+      "title": "Pro Football Retirement"
+    },
+    {
+      "ticker": "KXNFLSTADIUM",
+      "title": "Will NFL Stadium Project be complete by date"
+    },
+    {
+      "ticker": "KXNBARELOCATION",
+      "title": "Pro Basketball Team Relocation"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSMIA",
+      "title": "Pro football exact wins Miami"
+    },
+    {
+      "ticker": "KXNFLROLE",
+      "title": "Pro Football Role at Event"
+    },
+    {
+      "ticker": "KXNFLWINS-CAR",
+      "title": "Pro football wins Carolina"
+    },
+    {
+      "ticker": "KXNFL4Q",
+      "title": "Pro Football 4th Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLWINS-WAS",
+      "title": "Pro football wins Washington"
+    },
+    {
+      "ticker": "KXNBALOTTERY",
+      "title": "NBA Draft Lottery Picks"
+    },
+    {
+      "ticker": "KXNFL1QSPREAD",
+      "title": "Pro Football 1st Quarter Spread"
+    },
+    {
+      "ticker": "KXNBASTARTERS",
+      "title": "Pro Basketball Starting Lineup"
+    },
+    {
+      "ticker": "KXNFLPROOTY",
+      "title": "Pro Football Protector of the Year"
+    },
+    {
+      "ticker": "KXNFLDPOY",
+      "title": "NFL Defensive Player of the Year"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSDAL",
+      "title": "Pro football exact wins Dallas"
+    },
+    {
+      "ticker": "KXNBAALLSTARMVP",
+      "title": "NBA All-Star Game MVP"
+    },
+    {
+      "ticker": "KXNFLDRAFTTE",
+      "title": "Pro Football Tight End Drafted"
+    },
+    {
+      "ticker": "KXNBAFIRSTBASKET",
+      "title": "Pro Basketball First Basket"
+    },
+    {
+      "ticker": "KXNFLWINS-JAC",
+      "title": "Pro football wins Jacksonville"
+    },
+    {
+      "ticker": "KXNFLCOTY",
+      "title": "AP Pro Football Coach Of The Year"
+    },
+    {
+      "ticker": "KXNFLWINMARGIN",
+      "title": "Pro Football Win Margin"
+    },
+    {
+      "ticker": "KXNBAGAME",
+      "title": "Pro Basketball Game"
+    },
+    {
+      "ticker": "KXNFLFFPTS",
+      "title": "Pro Football Player Fantasy Points"
+    },
+    {
+      "ticker": "KXNFLSBMVPQB",
+      "title": "Non QB Championship MVP"
+    },
+    {
+      "ticker": "KXNFLOROY",
+      "title": "NFL Offensive Rookie of the Y ear"
+    },
+    {
+      "ticker": "KXNBAWEST",
+      "title": "Pro Basketball Western Conference Champion"
+    },
+    {
+      "ticker": "KXNFLWINS-NE",
+      "title": "Pro football wins New England"
+    },
+    {
+      "ticker": "KXNFLMVP",
+      "title": "AP Pro Football Regular Season MVP"
+    },
+    {
+      "ticker": "KXNBASUMMER1HTOTAL",
+      "title": "Pro Basketball Summer League 1st Half Total"
+    },
+    {
+      "ticker": "KXNFLGAMESACK",
+      "title": "Pro Football Sacks"
+    },
+    {
+      "ticker": "KXNFLPREPACK3ML",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNFLHIGHSCOREQ",
+      "title": "Pro Football Highest Scoring Quarter"
+    },
+    {
+      "ticker": "KXNBASUMMERTOTAL",
+      "title": "Pro Basketball Summer League Total"
+    },
+    {
+      "ticker": "KXNFLNOSCOREQ",
+      "title": "Pro Football Scoreless Quarter"
+    },
+    {
+      "ticker": "KXNBANEXTTEAMOUTLET",
+      "title": "Pro Basketball Outlet to Announce Next Team"
+    },
+    {
+      "ticker": "KXNBA1HWINNER",
+      "title": "Pro Baskeball 1st Half Winner"
+    },
+    {
+      "ticker": "KXNBAPREPACK2ML",
+      "title": "2 ML Basketball Combo"
+    },
+    {
+      "ticker": "KXNFLNFCWEST",
+      "title": "National Football Conference West Winner"
+    },
+    {
+      "ticker": "KXNBA4QWINNER",
+      "title": "NBA 4th Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLTEAMDPTS",
+      "title": "Who will allow the least/most points this season"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSDET",
+      "title": "Pro football exact wins Detroit"
+    },
+    {
+      "ticker": "KXNFL2Q",
+      "title": "Pro Football 2nd Quarter Winner"
+    },
+    {
+      "ticker": "KXNBAFINALSVIEWER",
+      "title": "NBA finals viewership"
+    },
+    {
+      "ticker": "KXNFLPRIMETIME",
+      "title": "Pro Football Primetime Games"
+    },
+    {
+      "ticker": "KXNBARISINGSTARS",
+      "title": "Pro Basketball Rising Stars Tournament"
+    },
+    {
+      "ticker": "KXNFLWINS-GB",
+      "title": "Pro football wins Green Bay"
+    },
+    {
+      "ticker": "KXNFLWINS-LAC",
+      "title": "Pro football wins Los Angeles C"
+    },
+    {
+      "ticker": "KXNFLWINS-MIA",
+      "title": "Pro football wins Miami"
+    },
+    {
+      "ticker": "KXNFLCPOTY",
+      "title": "AP Pro Football Comeback Player of the Year"
+    },
+    {
+      "ticker": "KXNBAOVERTIME",
+      "title": "NBA Overtime"
+    },
+    {
+      "ticker": "KXNFLWINS-DAL",
+      "title": "Pro football wins Dallas"
+    },
+    {
+      "ticker": "KXNFL4DCONV",
+      "title": "Pro Football 4th Down Conversions"
+    },
+    {
+      "ticker": "KXNBAPACIFIC",
+      "title": "Pro Basketball Pacific Division Winner"
+    },
+    {
+      "ticker": "KXNFLLONGRSH",
+      "title": "Longest Rush"
+    },
+    {
+      "ticker": "KXNFLDRAFT1ST",
+      "title": "Make the 1st pick in NFL Draft"
+    },
+    {
+      "ticker": "KXNFLOWNERSTAKE",
+      "title": "Next Pro Football Team to Sell Ownership Stake"
+    },
+    {
+      "ticker": "KXNBADRAFT7",
+      "title": "NBA Draft Seventh Pick"
+    },
+    {
+      "ticker": "KXNFLDEBUT",
+      "title": "Pro Football Player to Make Debut"
+    },
+    {
+      "ticker": "KXNBARULE",
+      "title": "Pro Basketball Rule"
+    },
+    {
+      "ticker": "KXNBASUMMER1HWINNER",
+      "title": "Pro Basketball Summer League 1st Half Winner"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSLV",
+      "title": "Pro football exact wins Las Vegas"
+    },
+    {
+      "ticker": "KXNBADRAFTCAT",
+      "title": "Pro Basketball Draft Category"
+    },
+    {
+      "ticker": "KXNFLAWARDFIN",
+      "title": "Pro Football Award Finalists"
+    },
+    {
+      "ticker": "KXNFLSBMVPPOS",
+      "title": "Pro Football Championship MVP Position"
+    },
+    {
+      "ticker": "KXNFLSDRAFTTOP",
+      "title": "Will player be drafted Top X in Supplemental Draft"
+    },
+    {
+      "ticker": "KXNBAPLAYERDEAL",
+      "title": "Next Pro Basketball Brand Deal"
+    },
+    {
+      "ticker": "KXNFLPASSATT",
+      "title": "Pro Football Passing Attempts"
+    },
+    {
+      "ticker": "KXNBASUMMERPTS",
+      "title": "Pro Basketball Summer Player Points"
+    },
+    {
+      "ticker": "KXNFLDRAFTMATCHUP",
+      "title": "Pro Football Draft Matchup"
+    },
+    {
+      "ticker": "KXNFLCOACH",
+      "title": "NFL Coach of the Year"
+    },
+    {
+      "ticker": "KXNFLDRAFTRB",
+      "title": "Pro Football Running Back Drafted"
+    },
+    {
+      "ticker": "KXNFLSTAGEOFELIM",
+      "title": "Pro Football Stage of Elimination"
+    },
+    {
+      "ticker": "KXNBACOY",
+      "title": "Pro Basketball Coach of the Year"
+    },
+    {
+      "ticker": "KXNFLCOMBO",
+      "title": "NFL COMBO"
+    },
+    {
+      "ticker": "KXNBATOPPICK",
+      "title": "Pro Basketball Draft Lottery Winner"
+    },
+    {
+      "ticker": "KXNFLALLPRO",
+      "title": "Pro Football All-Pro Teams"
+    },
+    {
+      "ticker": "KXNBACOMPETE",
+      "title": "Pro Basketball Player to Compete"
+    },
+    {
+      "ticker": "KXNFLGAMETO",
+      "title": "Pro Football Turnovers"
+    },
+    {
+      "ticker": "KXNFLREBOOT",
+      "title": "Reboot Rules"
+    },
+    {
+      "ticker": "KXNBA1QTOTAL",
+      "title": "Pro Basketball 1st Quarter Total"
+    },
+    {
+      "ticker": "KXNFLWINS-PHI",
+      "title": "Pro football wins Philadelphia"
+    },
+    {
+      "ticker": "KXNFLOROTY",
+      "title": "AP Pro Football Offensive Rookie of the Year"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSPHI",
+      "title": "Pro football exact wins Philadephia"
+    },
+    {
+      "ticker": "KXNFLGPICKENSCONTRACT",
+      "title": "Pro Football George Picken's Next Contract Size"
+    },
+    {
+      "ticker": "KXNFLCONTRACTSIZE",
+      "title": "Pro Football Next Contract Size"
+    },
+    {
+      "ticker": "KXNFLSFPRACFIELD",
+      "title": "Practice Field Relocation"
+    },
+    {
+      "ticker": "KXNBA1QWINNER",
+      "title": "NBA 1st Quarter Winner"
+    },
+    {
+      "ticker": "KXNBASIXTH",
+      "title": "Pro Basketball Sixth Man of the Year"
+    },
+    {
+      "ticker": "KXNFLWINS-PIT",
+      "title": "Pro football wins Pittsburgh"
+    },
+    {
+      "ticker": "KXNFLDRAFTDT",
+      "title": "Pro Football Defensive Tackle Drafted"
+    },
+    {
+      "ticker": "KXNBA2NDTEAMDEF",
+      "title": "All-NBA Defensive 2nd Team"
+    },
+    {
+      "ticker": "KXNBAMIMP",
+      "title": "Pro Basketball Most Improved Player"
+    },
+    {
+      "ticker": "KXNBASWEEP",
+      "title": "NBA Teams to Have a Series Sweep"
+    },
+    {
+      "ticker": "KXNFLNEXTTEAM",
+      "title": "Player Next Team"
+    },
+    {
+      "ticker": "KXNBAALLSTARS",
+      "title": "Pro Basketball All Stars"
+    },
+    {
+      "ticker": "KXNFLLASTTOLOSE",
+      "title": "Pro Football Last Undefeated Team"
+    },
+    {
+      "ticker": "KXNBAWFINMVP",
+      "title": "Pro Basketball Western Conference Finals MVP"
+    },
+    {
+      "ticker": "KXNFLFIRSTTDTIME",
+      "title": "Pro Football First Touchdown Time"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSTB",
+      "title": "Pro football exact wins Tampa Bay"
+    },
+    {
+      "ticker": "KXNFLSELLOUT",
+      "title": "Pro Football Sellouts"
+    },
+    {
+      "ticker": "KXNBARA",
+      "title": "Pro Basketball Player Rebounds + Assists"
+    },
+    {
+      "ticker": "KXNBA1QSPREAD",
+      "title": "Pro Basketball 1st Quarter Spread"
+    },
+    {
+      "ticker": "KXNBACELEBRITYGAME",
+      "title": "Pro Basketball All-Star Celebrity Game"
+    },
+    {
+      "ticker": "KXNFL1H",
+      "title": "Pro Football 1st Half Winner"
+    },
+    {
+      "ticker": "KXNBAROOKIE1STTEAM",
+      "title": "NBA All-Rookie 1st Team"
+    },
+    {
+      "ticker": "KXNBATRADE",
+      "title": "Pro Basketball Trade"
+    },
+    {
+      "ticker": "KXNFLPREPACK",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNBARETURN",
+      "title": "Pro Basketball Player to Return"
+    },
+    {
+      "ticker": "KXNBAHOMECLINCH",
+      "title": "Pro Basketball Series Winner to Clinch at Home"
+    },
+    {
+      "ticker": "KXNFLTEAMTOTAL",
+      "title": "Pro Football Team Total Points"
+    },
+    {
+      "ticker": "KXNFLGAME",
+      "title": "Professional Football Game"
+    },
+    {
+      "ticker": "KXNBACUPQUAL",
+      "title": "Pro Basketball Cup Qualifiers"
+    },
+    {
+      "ticker": "KXNFLRETURN",
+      "title": "Pro Football Injury Return"
+    },
+    {
+      "ticker": "KXNBASEATTLE",
+      "title": "Seattle NBA team"
+    },
+    {
+      "ticker": "KXNFLNONQBPASS",
+      "title": "Pro Football Non-QB Passes"
+    },
+    {
+      "ticker": "KXNFLCOMBINE40",
+      "title": "Pro Football Combine Fastest 40 Time"
+    },
+    {
+      "ticker": "KXNBAWHATTEND",
+      "title": "Pro Basketball White House Attend"
+    },
+    {
+      "ticker": "KXNBANEXTTEAM",
+      "title": "Pro Basketball Next Team"
+    },
+    {
+      "ticker": "KXNBAPR",
+      "title": "Pro Basketball Player Points + Rebounds"
+    },
+    {
+      "ticker": "KXNFLTRADE",
+      "title": "Pro Football Players Traded"
+    },
+    {
+      "ticker": "KXNFLPASSCOMP",
+      "title": "Pro Football Passing Completions"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSTEN",
+      "title": "Pro football exact wins Tennessee"
+    },
+    {
+      "ticker": "KXNFLTIES",
+      "title": "Pro Football Ties"
+    },
+    {
+      "ticker": "KXNBAEAST",
+      "title": "Pro Basketball Eastern Conference Champion"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSCLE",
+      "title": "Pro football exact wins Cleveland"
+    },
+    {
+      "ticker": "KXNBADRAFT5",
+      "title": "NBA Draft Fifth Pick"
+    },
+    {
+      "ticker": "KXNBADRAFT6",
+      "title": "NBA Draft Sixth Pick"
+    },
+    {
+      "ticker": "KXNBAAPOLOGY",
+      "title": "Pro Basketball Apology"
+    },
+    {
+      "ticker": "KXNFLEVERYWEEKCOMPETE",
+      "title": "Pro Football Players to Play in Every Week of the Season"
+    },
+    {
+      "ticker": "KXNFLDRAFTCOMPARE",
+      "title": "NFL Draft Comparison"
+    },
+    {
+      "ticker": "KXNFL60YARDFGS",
+      "title": "Pro Football 60+ Yard Field Goals"
+    },
+    {
+      "ticker": "KXNBA3QTOTAL",
+      "title": "Pro Basketball 3rd Quarter Total"
+    },
+    {
+      "ticker": "KXNBASPORTSMANSHIP",
+      "title": "NBA Sportsmanship Award"
+    },
+    {
+      "ticker": "KXNBASUMMERMVP",
+      "title": "Pro Basketball Summer League MVP"
+    },
+    {
+      "ticker": "KXNFLGAMETD",
+      "title": "Pro Football Touchdowns"
+    },
+    {
+      "ticker": "KXNFLPREPACKSGPSPREAD",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNFL1Q",
+      "title": "Pro Football 1st Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLSBMVP",
+      "title": "Pro Football Championship MVP"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSLA",
+      "title": "Pro football exact wins Los Angeles R"
+    },
+    {
+      "ticker": "KXNBATOTAL",
+      "title": "Pro Basketball Total Points"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSLAC",
+      "title": "Pro football exact wins Los Angeles C"
+    },
+    {
+      "ticker": "KXNFLDRAFTOU",
+      "title": "Will Player be drafted before or after pick?"
+    },
+    {
+      "ticker": "KXNFLAFCWEST",
+      "title": "American Football Conference West Winner"
+    },
+    {
+      "ticker": "KXNFLWINS-CIN",
+      "title": "Pro football wins Cincinnati"
+    },
+    {
+      "ticker": "KXNFLWINS-SF",
+      "title": "Pro football wins San Francisco"
+    },
+    {
+      "ticker": "KXNFLLASTPICKPOS",
+      "title": "NFL Last Pick of the Draft Position"
+    },
+    {
+      "ticker": "KXNFLLARGESTLEAD",
+      "title": "Pro Football Largest Lead"
+    },
+    {
+      "ticker": "KXNFL3QWINNER",
+      "title": "Pro Football 3rd Quarter Winner"
+    },
+    {
+      "ticker": "KXNBAXMASOPPONENT",
+      "title": "Pro Basketball Christmas Day Opponent"
+    },
+    {
+      "ticker": "KXNBA2QTOTAL",
+      "title": "Pro Basketball 1st Quarter Total"
+    },
+    {
+      "ticker": "KXNFLWINS",
+      "title": "Pro Football Wins"
+    },
+    {
+      "ticker": "KXNFLHALLOFFAME",
+      "title": "Pro Football Hall of Fame"
+    },
+    {
+      "ticker": "KXNBAUPSET",
+      "title": "NBA Number of Upsets per Round"
+    },
+    {
+      "ticker": "KXNFLWEEKCOMPETE",
+      "title": "NFL Player to Play in Week"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSGB",
+      "title": "Pro football exact wins Green Bay"
+    },
+    {
+      "ticker": "KXNBASUMMER",
+      "title": "Pro Basketball Summer League Champion"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP",
+      "title": "Pro Basketball Top Draft"
+    },
+    {
+      "ticker": "KXNFLDIVISIONORDER",
+      "title": "Pro Football Division Exact Order"
+    },
+    {
+      "ticker": "KXNFLPREPACKSGP",
+      "title": "MVE NFL Pre Pack"
+    },
+    {
+      "ticker": "KXNFLDROTY",
+      "title": "AP Pro Football Defensive Rookie of the Year"
+    },
+    {
+      "ticker": "KXNBAGAMES",
+      "title": "NBA games"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSARI",
+      "title": "Pro football exact wins Arizona"
+    },
+    {
+      "ticker": "KXNBAPLAYERSPECIALS",
+      "title": "Pro Basketball Player Specials"
+    },
+    {
+      "ticker": "KXNBADRAFTCOMP",
+      "title": "Pro Basketball Draft Comparison"
+    },
+    {
+      "ticker": "KXNBAMVP",
+      "title": "Pro Basketball MVP"
+    },
+    {
+      "ticker": "KXNFLASSCOACH",
+      "title": "NFL Assistant Coach of the Year"
+    },
+    {
+      "ticker": "KXNBASHOOTINGSTARS",
+      "title": "Pro Basketball Shooting Stars Contest"
+    },
+    {
+      "ticker": "KXNBAFIRSTOPPONENT",
+      "title": "Pro Basketball First Opponent of the Season"
+    },
+    {
+      "ticker": "KXNBADRAFTINT",
+      "title": "Pro Basketball International Players Drafted"
+    },
+    {
+      "ticker": "KXNFLRSHATT",
+      "title": "Pro Football Rushing Attempts"
+    },
+    {
+      "ticker": "KXNFLDRAFTOL",
+      "title": "Pro Football Offensive Line Drafted "
+    },
+    {
+      "ticker": "KXNBADRAFT3",
+      "title": "NBA Draft Third Pick"
+    },
+    {
+      "ticker": "KXNFLWINS-CHI",
+      "title": "Pro football wins Chicago"
+    },
+    {
+      "ticker": "KXNFLOPOTY",
+      "title": "AP Pro Football Offensive Player Of The Year"
+    },
+    {
+      "ticker": "KXNBACELEBRITY3PT",
+      "title": "NBA Celebrity 3PT Contest"
+    },
+    {
+      "ticker": "KXNFLSHORTESTTD",
+      "title": "Pro Football Shortest Touchdown"
+    },
+    {
+      "ticker": "KXNFLDRAFTPICK",
+      "title": "NFL Draft Pick"
+    },
+    {
+      "ticker": "KXNBAEFINMVP",
+      "title": "Pro Basketball Eastern Conference Finals MVP"
+    },
+    {
+      "ticker": "KXNFLDRAFTLB",
+      "title": "Pro Football Linebacker Drafted"
+    },
+    {
+      "ticker": "KXNFLLONGESTFG",
+      "title": "Pro Football Longest Field Goal"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSMIN",
+      "title": "Pro football exact wins Minnesota"
+    },
+    {
+      "ticker": "KXNBADRAFTMATCHUP",
+      "title": "Pro Basketball Draft Matchup"
+    },
+    {
+      "ticker": "KXNFLDRAFTQB",
+      "title": "Pro Football Quarterback Drafted"
+    },
+    {
+      "ticker": "KXNBA2HSPREAD",
+      "title": "Pro Basketball 2nd Half Spread"
+    },
+    {
+      "ticker": "KXNFLCOMPETE",
+      "title": "Will an NFL Player Compete in game"
+    },
+    {
+      "ticker": "KXNFLCELEBRITYGAME",
+      "title": "Pro Football Celebrity Flag Football Game"
+    },
+    {
+      "ticker": "KXNBAFINBLOWOUT",
+      "title": "Pro Basketball Finals Blowout"
+    },
+    {
+      "ticker": "KXNBA3RDTEAM",
+      "title": "All-NBA 3rd Team"
+    },
+    {
+      "ticker": "KXNBAMVPDPOY",
+      "title": "Pro Basketball Player to Win MVP and DPOY"
+    },
+    {
+      "ticker": "KXNBANEXTCONTRACT",
+      "title": "Pro Basketball Next Contract Size"
+    },
+    {
+      "ticker": "KXNBA3QWINNER",
+      "title": "NBA 3rd Quarter Winner"
+    },
+    {
+      "ticker": "KXNBANORTHWEST",
+      "title": "Pro Basketball Northwest Division Winner"
+    },
+    {
+      "ticker": "KXNBAGAME7",
+      "title": "NBA Series that Go to a Game 7"
+    },
+    {
+      "ticker": "KXNFLEXACTWINSNO",
+      "title": "Pro football exact wins New Orleans"
+    },
+    {
+      "ticker": "KXNBANEXTGOVERNOR",
+      "title": "Pro Basketball Next Governor"
+    },
+    {
+      "ticker": "KXNFLFIRSTPICK",
+      "title": "First Pick in NFL Draft"
+    },
+    {
+      "ticker": "KXNFLWINS-CLE",
+      "title": "Pro football wins Cleveland"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP15",
+      "title": "NBA Draft Top 15 Pick"
+    },
+    {
+      "ticker": "KXNBA2QWINNER",
+      "title": "NBA 2nd Quarter Winner"
+    },
+    {
+      "ticker": "KXNBADRAFTTRADE",
+      "title": "Pro Basketball Draft Trade"
+    },
+    {
+      "ticker": "KXNFLPROBOWLWIN",
+      "title": "Pro Football Pro Bowl Game"
+    },
+    {
+      "ticker": "KXNBAFINALSEXACT",
+      "title": "Pro Basketball Championship Series Score"
+    },
+    {
+      "ticker": "KXNFLTOTAL",
+      "title": "Pro Football Total Points"
+    },
+    {
+      "ticker": "KXNFLTD",
+      "title": "Pro Football Touchdowns"
+    },
+    {
+      "ticker": "KXNFLWINS-ARI",
+      "title": "Pro football wins Arizona"
+    },
+    {
+      "ticker": "KXNFLDRAFTDB",
+      "title": "Pro Football Defensive Back Drafted"
+    },
+    {
+      "ticker": "KXNBA4QTOTAL",
+      "title": "Pro Basketball 4th Quarter Total"
+    },
+    {
+      "ticker": "KXNFLLEADCHANGE",
+      "title": "Pro Football Lead Changes"
+    },
+    {
+      "ticker": "KXNFL2QWINNER",
+      "title": "Pro Football 2nd Quarter Winner"
+    },
+    {
+      "ticker": "KXNFLWINS-KC",
+      "title": "Pro football wins Kansas City"
+    },
+    {
+      "ticker": "KXNBADRAFTTOP30",
+      "title": "NBA Draft Top 30 Pick"
+    },
+    {
+      "ticker": "KXNBANEWCHAMP",
+      "title": "NBA First-Time Champion"
+    },
+    {
+      "ticker": "KXNFLBLOWOUT",
+      "title": "Pro Football Biggest Blowout"
+    },
+    {
+      "ticker": "KXNFLTEAM1POS",
+      "title": "What position will Team select with first pick"
+    },
+    {
+      "ticker": "KXNFLDRAFTEAMPOS",
+      "title": "Will team draft a position across round"
+    },
+    {
+      "ticker": "KXNBADRAFT2",
+      "title": "NBA Draft Second Pick"
+    },
+    {
+      "ticker": "KXNFLWINSTREAK",
+      "title": "Pro Football Win Streak"
+    },
+    {
+      "ticker": "KXNFLCOACHOUT",
+      "title": "NFL Coaches Fired"
+    },
+    {
+      "ticker": "KXNBADRAFT8",
+      "title": "NBA Draft Eighth Pick"
+    },
+    {
+      "ticker": "KXNBA2HTOTAL",
+      "title": "Pro Basketball 2nd Half Total Points"
+    },
+    {
+      "ticker": "KXNFL2HWINNER",
+      "title": "NFL 2nd Half Winner"
+    }
+  ]
+}
