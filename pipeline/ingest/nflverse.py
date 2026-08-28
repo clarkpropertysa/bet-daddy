@@ -15,7 +15,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-import polars as pl
+import pyarrow as pa
+import pyarrow.parquet as pq
 import requests
 
 from pipeline.common import config
@@ -74,7 +75,7 @@ def url_for(ds: Dataset, season: int | None) -> str:
     return f"{BASE}/{ds.release}/{fn}"
 
 
-def fetch(name: str, season: int | None = None, force: bool = False) -> pl.DataFrame:
+def fetch(name: str, season: int | None = None, force: bool = False) -> pa.Table:
     ds = DATASETS[name]
     if ds.seasonal and season is None:
         raise ValueError(f"{name} is seasonal; pass season=")
@@ -95,12 +96,12 @@ def fetch(name: str, season: int | None = None, force: bool = False) -> pl.DataF
         r.raise_for_status()
         dest.write_bytes(r.content)
 
-    df = pl.read_parquet(dest)
-    missing = [c for c in ds.required if c not in df.columns]
+    df = pq.read_table(dest)
+    missing = [c for c in ds.required if c not in df.column_names]
     if missing:
         raise SchemaDriftError(
             f"{name}{suffix}: nflverse schema drift -- missing required columns {missing}. "
-            f"Present: {sorted(df.columns)[:40]}... "
+            f"Present: {sorted(df.column_names)[:40]}... "
             f"Update DATASETS[{name!r}].required and any dependent feature code."
         )
     return df
@@ -116,7 +117,7 @@ def ingest(names: list[str], seasons: list[int], force: bool = False) -> list[di
             rec = {"dataset": name, "season": s, "started": datetime.now(timezone.utc)}
             try:
                 df = fetch(name, s, force=force)
-                rec |= {"status": "ok", "rows": df.height, "cols": df.width,
+                rec |= {"status": "ok", "rows": df.num_rows, "cols": df.num_columns,
                         "secs": round(time.time() - t0, 1)}
             except NotYetPublished as e:
                 rec |= {"status": "pending", "rows": 0, "error": str(e),

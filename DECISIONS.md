@@ -167,3 +167,44 @@ four times over. Due-ness is computed from the archive itself (max(ts) per marke
 there is no side state to drift out of sync with the data.
 
 Escape hatch if the archive outgrows 1 GB: Cloudflare R2 (10 GB free, S3-compatible).
+
+---
+
+### D11. polars removed; duckdb + pyarrow only
+
+polars ships a **189 MB** native library. macOS validates code signatures on load, and
+that validation is not cached across processes: with the machine under load, a single
+`import polars` blocked for **minutes**, every time. Measured Gatekeeper evaluation on
+one .so was 3.5s. duckdb (43 MB) and pyarrow import in 0.09s.
+
+The rewrite was cheap because duckdb was already a dependency for the raw Parquet
+layer, and the crosswalk/rest logic is clearer as SQL than as dataframe chains.
+Interchange type is now `pyarrow.Table`; all querying goes through duckdb.
+
+Also: **keep this project out of iCloud-synced folders.** Running `npm install` inside
+`~/Desktop` put ~750 MB of small files under Desktop & Documents sync, drove load
+average to 32 on 8 cores, and triggered an iCloud migration that relocated the working
+tree mid-session. The repo now lives at `~/Bet Daddy`, outside the synced tree, with
+`.metadata_never_index` on the heavy directories.
+
+---
+
+### D12. Rest context: bye weeks are structural, and window bounds are off-by-one traps
+
+Three bugs the 2026 schedule caught, all of which would have silently poisoned rest
+splits:
+
+1. **A bye is a missing week, not a rest-day threshold.** Detecting post-bye via
+   `days_rest >= 12` finds only 30 of 32 teams: a bye followed by a Thursday game
+   leaves **10 days**. Now derived from the week gap (`week - lag(week) > 1`), with
+   the days-based rule kept only as the NBA/no-week fallback.
+
+2. **"3 games in 4 nights" means a 4-CALENDAR-DAY span** -- today plus 3 prior days.
+   Using `interval 4 day preceding` counts the Sunday game before a Thursday game and
+   produced 33 false positives across the NFL season, where the true count is zero.
+
+3. **Not every Thursday game is a short week.** KC and LA play Thursday-to-Thursday
+   after Thanksgiving 2026, on 7 and 8 days rest.
+
+`games_in_last_6` firing on short weeks is correct and is the signal -- it flags
+exactly the 39 games played on 4-5 days rest.

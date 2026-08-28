@@ -1,9 +1,23 @@
 """Player identity resolution. Section 12 calls this the biggest hidden time sink."""
-import polars as pl
+import pyarrow as pa
 
 from pipeline.features.crosswalk import build_crosswalk, parse_player_key
 
 TEAMS = {"SF", "LA", "LAR", "SEA", "NE", "KC"}
+
+ROSTER_SCHEMA = pa.schema([
+    ("team", pa.string()), ("jersey_number", pa.int32()), ("full_name", pa.string()),
+    ("first_name", pa.string()), ("last_name", pa.string()),
+    ("gsis_id", pa.string()), ("football_name", pa.string()),
+])
+
+
+def _roster(rows):
+    return pa.Table.from_pylist(rows, schema=ROSTER_SCHEMA)
+
+
+def _rows(table):
+    return table.to_pylist()
 
 
 def test_parses_ambiguous_team_boundary():
@@ -23,28 +37,20 @@ def test_rejects_unparseable_key():
     assert parse_player_key("NOTATEAM", TEAMS) is None
 
 
-def _roster(rows):
-    return pl.DataFrame(rows, schema={
-        "team": pl.Utf8, "jersey_number": pl.Int32, "full_name": pl.Utf8,
-        "first_name": pl.Utf8, "last_name": pl.Utf8, "gsis_id": pl.Utf8,
-        "football_name": pl.Utf8,
-    })
-
-
 def test_matches_on_football_name_not_legal_first_name():
     """Matthew Stafford's legal first_name is 'John'. Kalshi keys on 'M'.
 
-    Without football_name fallback this class of player silently fails to match.
+    Without the football_name fallback this class of player silently fails to match.
     """
     roster = _roster([{
         "team": "LA", "jersey_number": 9, "full_name": "Matthew Stafford",
         "first_name": "John", "last_name": "Stafford",
         "gsis_id": "00-0026498", "football_name": "Matthew",
     }])
-    x = build_crosswalk(["KXNFLPASSYDS-26SEP10SFLAR-LARMSTAFFORD9-300"], roster)
-    row = x.row(0, named=True)
-    assert row["gsis_id"] == "00-0026498"
-    assert row["method"] == "EXACT"
+    out = _rows(build_crosswalk(["KXNFLPASSYDS-26SEP10SFLAR-LARMSTAFFORD9-300"], roster))
+    assert len(out) == 1
+    assert out[0]["gsis_id"] == "00-0026498"
+    assert out[0]["method"] == "EXACT"
 
 
 def test_unresolved_is_surfaced_not_dropped():
@@ -54,10 +60,10 @@ def test_unresolved_is_surfaced_not_dropped():
         "first_name": "Christian", "last_name": "McCaffrey",
         "gsis_id": "00-0033280", "football_name": "Christian",
     }])
-    x = build_crosswalk(["KXNFLRECYDS-26SEP10SFLAR-SFDSAMUEL19-50"], roster)
-    assert x.height == 1
-    assert x.row(0, named=True)["method"] == "UNRESOLVED"
-    assert x.row(0, named=True)["gsis_id"] is None
+    out = _rows(build_crosswalk(["KXNFLRECYDS-26SEP10SFLAR-SFDSAMUEL19-50"], roster))
+    assert len(out) == 1
+    assert out[0]["method"] == "UNRESOLVED"
+    assert out[0]["gsis_id"] is None
 
 
 def test_surname_normalisation_handles_punctuation():
@@ -66,5 +72,16 @@ def test_surname_normalisation_handles_punctuation():
         "first_name": "A.J.", "last_name": "Brown",
         "gsis_id": "00-0035676", "football_name": "A.J.",
     }])
-    x = build_crosswalk(["KXNFLRECYDS-26SEP09NESEA-NEABROWN1-90"], roster)
-    assert x.row(0, named=True)["gsis_id"] == "00-0035676"
+    out = _rows(build_crosswalk(["KXNFLRECYDS-26SEP09NESEA-NEABROWN1-90"], roster))
+    assert out[0]["gsis_id"] == "00-0035676"
+
+
+def test_hyphenated_surname_resolves():
+    """Jaxon Smith-Njigba -> SEAJSMITHNJIGBA11: punctuation stripped both sides."""
+    roster = _roster([{
+        "team": "SEA", "jersey_number": 11, "full_name": "Jaxon Smith-Njigba",
+        "first_name": "Jaxon", "last_name": "Smith-Njigba",
+        "gsis_id": "00-0039055", "football_name": "Jaxon",
+    }])
+    out = _rows(build_crosswalk(["KXNFLREC-26SEP09NESEA-SEAJSMITHNJIGBA11-5"], roster))
+    assert out[0]["gsis_id"] == "00-0039055"

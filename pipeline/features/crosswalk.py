@@ -4,12 +4,16 @@ Kalshi encodes the player in the market ticker as a STRUCTURED key, not a free-t
 name: KXNFLPASSYDS-26SEP10SFLAR-SFBPURDY13-350 -> SF + B + PURDY + 13. That is far
 stronger than fuzzy name matching, which Section 12 rightly warns against.
 
-Measured on 636 live markets (2026-08-28):
+Measured on live markets (2026-08-28):
     naive regex (greedy team split)     55.1%   <- SFBPURDY13 parsed as SFB+PURDY
     team-anchored + alias map           92.3%
-    + jersey-agnostic fallback          92.8%
-Residual is ~9 players, all genuine roster churn (recent signings the week-1 roster
-snapshot has not absorbed). Those go to MANUAL_OVERRIDES.
+    + football_name initial fallback    93.8%
+
+Two bugs worth remembering, both silent-failure classes:
+  1. Team codes are 2-3 chars and ambiguous. A greedy regex turns SFBPURDY13 into
+     SFB+PURDY. Must anchor on the known team set, longest code first.
+  2. Legal first name != playing name. Matthew Stafford's nflverse first_name is
+     "John". nflverse carries football_name for exactly this.
 
 Nothing here silently guesses. Every resolution carries a method and confidence, and
 unresolved keys are returned for review rather than dropped.
@@ -20,26 +24,35 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-import polars as pl
+import duckdb
+import pyarrow as pa
 
-# Kalshi team code -> nflverse team code. nflverse uses LA (not LAR) and JAC (not JAX).
+# Kalshi team code -> nflverse team code. nflverse uses LA (not LAR), JAC (not JAX).
 TEAM_ALIASES = {
     "LAR": "LA", "JAX": "JAC", "WSH": "WAS", "ARZ": "ARI",
     "CLV": "CLE", "HST": "HOU", "OAK": "LV", "SD": "LAC", "SL": "LA",
 }
 
-# Reviewed by hand. Keyed by the raw Kalshi player key; value is a gsis_id.
-# Every entry needs a comment saying why -- an override without a reason is a bug
+# Reviewed by hand. Keyed by raw Kalshi player key -> gsis_id.
+# Every entry needs a comment saying why: an override without a reason is a bug
 # waiting to be inherited.
 MANUAL_OVERRIDES: dict[str, str] = {}
 
 _KEY_RE = re.compile(r"^([A-Z.']+?)(\d{1,2})$")
 
+RESULT_SCHEMA = pa.schema([
+    ("raw_key", pa.string()), ("team", pa.string()),
+    ("first_initial", pa.string()), ("surname", pa.string()),
+    ("jersey", pa.int64()), ("gsis_id", pa.string()),
+    ("full_name", pa.string()), ("method", pa.string()),
+    ("confidence", pa.float64()),
+])
+
 
 class MatchMethod(str, Enum):
-    EXACT = "EXACT"              # team + first initial + surname + jersey
-    FALLBACK = "FALLBACK"        # team + first initial + surname (jersey ignored)
-    MANUAL = "MANUAL"            # human override
+    EXACT = "EXACT"          # team + initial + surname + jersey
+    FALLBACK = "FALLBACK"    # team + initial + surname (jersey ignored)
+    MANUAL = "MANUAL"
     UNRESOLVED = "UNRESOLVED"
 
 
@@ -53,12 +66,7 @@ class ParsedKey:
 
 
 def parse_player_key(raw: str, valid_teams: set[str]) -> ParsedKey | None:
-    """Split a Kalshi player key using the KNOWN team set.
-
-    Regex alone cannot do this: team codes are 2-3 chars and ambiguous, so a greedy
-    pattern turns SFBPURDY13 into SFB+PURDY. Anchoring on real team codes (longest
-    first, aliases included) is what takes the match rate from 55% to 92%.
-    """
+    """Split a Kalshi player key using the KNOWN team set, longest code first."""
     m = _KEY_RE.match(raw)
     if not m:
         return None
@@ -70,104 +78,99 @@ def parse_player_key(raw: str, valid_teams: set[str]) -> ParsedKey | None:
     return None
 
 
-def _norm_surname(col: str) -> pl.Expr:
-    return pl.col(col).str.replace_all(r"[^A-Za-z]", "").str.to_uppercase()
-
-
-def build_crosswalk(market_tickers: list[str], roster: pl.DataFrame) -> pl.DataFrame:
-    """Resolve Kalshi player keys to gsis_ids. Returns one row per distinct key."""
-    valid = set(roster["team"].drop_nulls().unique().to_list()) | set(TEAM_ALIASES)
+def build_crosswalk(market_tickers: list[str], roster: pa.Table) -> pa.Table:
+    """Resolve Kalshi player keys to gsis_ids. One row per distinct key."""
+    con = duckdb.connect()
+    con.register("roster_raw", roster)
+    valid = {r[0] for r in con.execute(
+        "select distinct team from roster_raw where team is not null").fetchall()}
+    valid |= set(TEAM_ALIASES)
 
     seen: dict[str, ParsedKey] = {}
-    unparsed: list[str] = []
     for t in market_tickers:
         parts = t.split("-")
-        if len(parts) < 3:
+        if len(parts) < 3 or parts[2] in seen:
             continue
-        raw = parts[2]
-        if raw in seen:
-            continue
-        pk = parse_player_key(raw, valid)
-        if pk:
-            seen[raw] = pk
-        else:
-            unparsed.append(raw)
+        if pk := parse_player_key(parts[2], valid):
+            seen[parts[2]] = pk
 
     if not seen:
-        return pl.DataFrame(schema={
-            "raw_key": pl.Utf8, "team": pl.Utf8, "first_initial": pl.Utf8,
-            "surname": pl.Utf8, "jersey": pl.Int64, "gsis_id": pl.Utf8,
-            "full_name": pl.Utf8, "method": pl.Utf8, "confidence": pl.Float64,
-        })
+        return RESULT_SCHEMA.empty_table()
 
-    keys = pl.DataFrame([{
-        "raw_key": p.raw, "team": p.team, "first_initial": p.first_initial,
-        "surname": p.surname, "jersey": p.jersey,
-    } for p in seen.values()])
-
-    # A player's legal first_name is often not the name he plays under: Matthew
-    # Stafford's first_name is "John". nflverse carries football_name for exactly this,
-    # and Kalshi keys off the known name. Match on EITHER initial, or matching silently
-    # fails for a whole class of players.
-    cols = ["team", "jersey_number", "full_name", "first_name", "last_name", "gsis_id"]
-    if "football_name" in roster.columns:
-        cols.append("football_name")
-    r = (roster.select(cols)
-         .drop_nulls("jersey_number")
-         .with_columns(
-             _surname=_norm_surname("last_name"),
-             _init=pl.col("first_name").str.slice(0, 1).str.to_uppercase(),
-             _init_fb=(pl.col("football_name") if "football_name" in cols
-                       else pl.col("first_name")).str.slice(0, 1).str.to_uppercase(),
-             jersey=pl.col("jersey_number").cast(pl.Int64),
-         ).unique())
-
-    # long-form: one row per (player, acceptable initial) so a single join covers both
-    r = pl.concat([
-        r.with_columns(_i=pl.col("_init")),
-        r.with_columns(_i=pl.col("_init_fb")),
-    ]).unique(subset=["gsis_id", "team", "jersey", "_surname", "_i"])
-
-    exact = keys.join(
-        r.select("team", "jersey", "_surname", "_i", "gsis_id", "full_name"),
-        left_on=["team", "jersey", "surname", "first_initial"],
-        right_on=["team", "jersey", "_surname", "_i"],
-        how="left",
-    ).unique(subset=["raw_key"], keep="first")
-
-    resolved = exact.filter(pl.col("gsis_id").is_not_null()).with_columns(
-        method=pl.lit(MatchMethod.EXACT.value), confidence=pl.lit(1.0))
-
-    # fallback: same team + name, jersey changed (mid-season number swaps happen)
-    todo = exact.filter(pl.col("gsis_id").is_null()).drop("gsis_id", "full_name")
-    fb = todo.join(
-        r.select("team", "_surname", "_i", "gsis_id", "full_name"),
-        left_on=["team", "surname", "first_initial"],
-        right_on=["team", "_surname", "_i"],
-        how="left",
-    ).unique(subset=["raw_key"], keep="first")
-
-    fb_ok = fb.filter(pl.col("gsis_id").is_not_null()).with_columns(
-        method=pl.lit(MatchMethod.FALLBACK.value), confidence=pl.lit(0.85))
-
-    rest = fb.filter(pl.col("gsis_id").is_null()).with_columns(
-        gsis_id=pl.col("raw_key").replace_strict(MANUAL_OVERRIDES, default=None),
-    ).with_columns(
-        method=pl.when(pl.col("gsis_id").is_not_null())
-                 .then(pl.lit(MatchMethod.MANUAL.value))
-                 .otherwise(pl.lit(MatchMethod.UNRESOLVED.value)),
-        confidence=pl.when(pl.col("gsis_id").is_not_null())
-                     .then(pl.lit(1.0)).otherwise(pl.lit(0.0)),
+    keys = pa.Table.from_pylist(
+        [{"raw_key": p.raw, "team": p.team, "first_initial": p.first_initial,
+          "surname": p.surname, "jersey": p.jersey} for p in seen.values()],
+        schema=pa.schema([("raw_key", pa.string()), ("team", pa.string()),
+                          ("first_initial", pa.string()), ("surname", pa.string()),
+                          ("jersey", pa.int64())]),
     )
+    con.register("keys", keys)
 
-    out_cols = ["raw_key", "team", "first_initial", "surname", "jersey",
-                "gsis_id", "full_name", "method", "confidence"]
-    for f in (resolved, fb_ok, rest):
-        if "full_name" not in f.columns:
-            f = f.with_columns(full_name=pl.lit(None, dtype=pl.Utf8))
-    return pl.concat(
-        [f.with_columns(
-            **{c: pl.lit(None, dtype=pl.Utf8) for c in out_cols if c not in f.columns})
-          .select(out_cols) for f in (resolved, fb_ok, rest)],
-        how="vertical",
-    )
+    has_fb = "football_name" in roster.column_names
+    fb_col = "football_name" if has_fb else "first_name"
+
+    # One row per (player, acceptable initial) so a single join covers both the legal
+    # first name and the name the player actually goes by.
+    con.execute(f"""
+        create or replace temp view roster as
+        select distinct
+            team,
+            cast(jersey_number as bigint) as jersey,
+            full_name,
+            gsis_id,
+            upper(regexp_replace(last_name, '[^A-Za-z]', '', 'g')) as surname,
+            upper(substr(initial_src, 1, 1)) as initial
+        from (
+            select team, jersey_number, full_name, last_name, gsis_id,
+                   unnest([first_name, {fb_col}]) as initial_src
+            from roster_raw
+            where jersey_number is not null and gsis_id is not null
+        )
+    """)
+
+    overrides = [{"raw_key": k, "gsis_id": v} for k, v in MANUAL_OVERRIDES.items()]
+    con.register("overrides", pa.Table.from_pylist(
+        overrides, schema=pa.schema([("raw_key", pa.string()), ("gsis_id", pa.string())])))
+
+    return con.execute(f"""
+        with exact as (
+            select k.raw_key, r.gsis_id, r.full_name
+            from keys k join roster r
+              on r.team = k.team and r.jersey = k.jersey
+             and r.surname = k.surname and r.initial = k.first_initial
+        ),
+        -- same team + name, jersey changed (mid-season number swaps happen)
+        fallback as (
+            select k.raw_key, r.gsis_id, r.full_name
+            from keys k join roster r
+              on r.team = k.team and r.surname = k.surname
+             and r.initial = k.first_initial
+            where k.raw_key not in (select raw_key from exact)
+        ),
+        resolved as (
+            select raw_key, gsis_id, full_name,
+                   '{MatchMethod.EXACT.value}' as method, 1.0 as confidence
+            from (select *, row_number() over (partition by raw_key) rn from exact) where rn = 1
+            union all
+            select raw_key, gsis_id, full_name,
+                   '{MatchMethod.FALLBACK.value}', 0.85
+            from (select *, row_number() over (partition by raw_key) rn from fallback) where rn = 1
+        )
+        select
+            k.raw_key, k.team, k.first_initial, k.surname, k.jersey,
+            coalesce(r.gsis_id, o.gsis_id)            as gsis_id,
+            r.full_name,
+            case
+                when r.method is not null then r.method
+                when o.gsis_id is not null then '{MatchMethod.MANUAL.value}'
+                else '{MatchMethod.UNRESOLVED.value}'
+            end                                        as method,
+            case
+                when r.confidence is not null then r.confidence
+                when o.gsis_id is not null then 1.0
+                else 0.0
+            end                                        as confidence
+        from keys k
+        left join resolved  r on r.raw_key = k.raw_key
+        left join overrides o on o.raw_key = k.raw_key
+    """).to_arrow_table().cast(RESULT_SCHEMA)

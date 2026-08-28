@@ -16,35 +16,41 @@ import json
 import time
 from datetime import datetime, timezone
 
-import polars as pl
-
 import duckdb
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from pipeline.common import config
 from pipeline.common.cadence import is_due
 from pipeline.common.kalshi import KalshiClient, _to_dec
 from pipeline.ingest.kalshi_discovery import NBA_PLAYER_PROPS, NFL_PLAYER_PROPS
 
-SCHEMA = {
-    "market_ticker": pl.Utf8,
-    "series_ticker": pl.Utf8,
-    "event_ticker": pl.Utf8,
-    "sport": pl.Utf8,
-    "market_type": pl.Utf8,
-    "ts": pl.Datetime(time_unit="us", time_zone="UTC"),
-    "yes_bid": pl.Decimal(precision=6, scale=4),
-    "yes_ask": pl.Decimal(precision=6, scale=4),
-    "last_price": pl.Decimal(precision=6, scale=4),
-    "volume": pl.Decimal(precision=18, scale=4),
-    "open_interest": pl.Decimal(precision=18, scale=4),
-    "strike": pl.Float64,
-    "status": pl.Utf8,
-    "close_time": pl.Datetime(time_unit="us", time_zone="UTC"),
-    "mins_to_close": pl.Int64,
-    "result": pl.Utf8,
-    "orderbook": pl.Utf8,
-    "source": pl.Utf8,
-}
+# Decimal, not float: the whole edge is ~1.75c wide and float rounding is not
+# acceptable at that scale (DECISIONS.md D3).
+_PRICE = pa.decimal128(6, 4)
+_QTY = pa.decimal128(18, 4)
+_TS = pa.timestamp("us", tz="UTC")
+
+SCHEMA = pa.schema([
+    ("market_ticker", pa.string()),
+    ("series_ticker", pa.string()),
+    ("event_ticker", pa.string()),
+    ("sport", pa.string()),
+    ("market_type", pa.string()),
+    ("ts", _TS),
+    ("yes_bid", _PRICE),
+    ("yes_ask", _PRICE),
+    ("last_price", _PRICE),
+    ("volume", _QTY),
+    ("open_interest", _QTY),
+    ("strike", pa.float64()),
+    ("status", pa.string()),
+    ("close_time", _TS),
+    ("mins_to_close", pa.int64()),
+    ("result", pa.string()),
+    ("orderbook", pa.string()),
+    ("source", pa.string()),
+])
 
 
 def _parse_ts(v):
@@ -158,18 +164,18 @@ def snapshot(
     if not rows:
         return {"rows": 0, "skipped": skipped, "errors": errors, "path": None}
 
-    df = pl.DataFrame(rows, schema=SCHEMA)
+    df = pa.Table.from_pylist(rows, schema=SCHEMA)
     day = now.strftime("%Y-%m-%d")
     out_dir = config.ARCHIVE_DIR / "market_snapshots" / f"date={day}"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"snap_{now.strftime('%H%M%S')}.parquet"
-    df.write_parquet(path, compression="zstd")
+    pq.write_table(df, path, compression="zstd")
 
-    quoted = df.filter(
-        pl.col("yes_bid").is_not_null() | pl.col("yes_ask").is_not_null()
-    ).height
+    quoted = sum(
+        1 for r in rows if r["yes_bid"] is not None or r["yes_ask"] is not None
+    )
     return {
-        "rows": df.height,
+        "rows": df.num_rows,
         "quoted": quoted,
         "orderbooks": ob_calls,
         "skipped": skipped,
