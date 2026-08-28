@@ -9,6 +9,9 @@ description = "Bet Daddy: NFL/NBA player-prop research pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "duckdb>=1.1",
+    # duckdb needs pytz to materialise tz-aware timestamps into Python objects.
+    # Without it, any query selecting a timestamptz raises at fetch time.
+    "pytz>=2024.1",
     "pyarrow>=17",
     "pandas>=2.2",
     "requests>=2.32",

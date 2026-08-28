@@ -318,3 +318,50 @@ product.
 POSITIVE mean CLV. A signal family with 900 settled contracts and -0.8c CLV is
 disproven, not validated, and stays UNVALIDATED -- promoting on volume alone is how a
 tool launders a losing model.
+
+---
+
+### D18. Point-in-time correctness is enforced, not remembered
+
+A leaky backtest looks like a brilliant model, and the failure is silent. So the
+cutoff is an explicit, tested API rather than a convention:
+
+* `filter_as_of` keeps rows STRICTLY before the cutoff. Not `<=`: a row stamped
+  exactly at the cutoff is ambiguous, and on a T-60 reconstruction the ambiguous row
+  is usually the one that leaks.
+* `assert_no_leakage` fails loudly, naming the offending row count and timestamp.
+* `assert_features_predate_kickoff` guards the most damaging leak available here --
+  building a "prediction" from the completed game's own play-by-play.
+
+`price_at(mins_before_close)` only considers snapshots at or BEFORE the requested
+horizon. Returning the nearest snapshot in absolute terms would happily hand back a
+later one and leak price information from after the reconstruction time.
+
+---
+
+### D19. CLV is the metric that survives having no history
+
+Kalshi retains no settled prop markets across seasons (D1), so there is no historical
+price series to backtest. CLV replaces it because it is measurable FORWARD against our
+own archive from week 1, and it needs no settlement:
+
+    clv_cents = (close - entry) * 100      # sign flips for a NO position
+
+The NO sign inversion matters: a NO holder profits when the yes price falls, so the
+same move that hurts a YES helps a NO. Getting that backwards inverts the entire
+Track Record page.
+
+CLV depends only on price movement, not outcome, which is why it is readable after
+dozens of contracts rather than hundreds of settlements.
+
+Settlement P&L is tracked separately and nets the exact entry fee. A NO at a 40c
+yes-price costs 60c, not 40c -- an easy and expensive thing to get wrong.
+
+---
+
+### D20. pytz is a real dependency, not an optional one
+
+duckdb cannot materialise a `timestamptz` into a Python object without pytz, and
+fails at fetch time with a confusing ModuleNotFoundError. Worked around it twice by
+casting to epoch/varchar before accepting that the workaround was degrading the API.
+It is declared now.
