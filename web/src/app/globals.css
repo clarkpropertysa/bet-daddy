@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/*
+ * Dark, dense, information-first (Section 9). This tool is committed to a single
+ * dark look rather than following the OS: the palette carries meaning here --
+ * emerald for positive edge, amber for fees and staleness, red for negative --
+ * and those readings must not shift with a system setting.
+ *
+ * The scaffold's default `body { background: var(--background) }` is deliberately
+ * removed: a bare element rule outranks Tailwind utility classes in the cascade, so
+ * it silently overrode the bg-zinc-950 on <body> and rendered the whole app light.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+}
+
+/* Tabular figures keep price and edge columns from jittering as values change. */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}

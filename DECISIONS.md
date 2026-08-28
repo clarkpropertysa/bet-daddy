@@ -365,3 +365,48 @@ duckdb cannot materialise a `timestamptz` into a Python object without pytz, and
 fails at fetch time with a confusing ModuleNotFoundError. Worked around it twice by
 casting to epoch/varchar before accepting that the workaround was degrading the API.
 It is declared now.
+
+---
+
+### D21. UI: empty states name their source, and staleness is structural
+
+Section 0 rule 3 says an unavailable source must produce an explicit empty state, not
+a placeholder. Two components enforce that rather than leaving it to discipline:
+
+* `<Empty>` requires a `source` prop, so a blank surface always says which system had
+  no data ("Signal table (Neon)").
+* `<Tier>` cannot render a confidence tier without also rendering `n`. Section 2
+  requires the sample size beside every signal, so the component makes omitting it
+  impossible rather than merely discouraged.
+
+"Validated only" is OFF by default on the Prop Board. Defaulting it on would hide
+every unvalidated signal and quietly imply that everything visible has a track record.
+
+The Why panel reads only STORED signal fields and never recomputes. Recomputing at
+read time would show what the model thinks now, not what it thought when the signal
+fired -- which is the question the panel exists to answer.
+
+**Bug the UI found.** The staleness banner correctly reported "archiver last succeeded
+never": the archiver wrote Parquet and blob but never recorded a `PipelineRun`, so the
+health surface had nothing to read. Section 6 requires every job to write one. Now
+wrapped in `db.track()`, which records success and failure alike and never raises --
+observability must not be able to fail a data job.
+
+---
+
+### D22. Two environment quirks, both now scripted
+
+* **Dev runs on webpack, not Turbopack.** The Next 16 default panics here when
+  spawning its pooled node worker for the PostCSS/Tailwind loader
+  ("spawning node pooled process - No such file or directory"). Putting node on PATH
+  does not help. Production builds are unaffected.
+* **node must be on PATH for child processes**, so an absolute path to the node
+  binary is not enough on its own. `scripts/dev-web.sh` handles both.
+
+The scaffold's `body { background: var(--background) }` was also removed: a bare
+element rule outranks Tailwind utilities in the cascade, so it silently overrode
+`bg-zinc-950` and rendered the entire app light.
+
+Prisma is pinned to 6.19.3 across root and /web. `create-next-app` had pulled
+prisma 8.0.0-rc.12 with a mismatched client 7.10.0 -- a release candidate, into the
+package that talks to the database.

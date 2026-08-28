@@ -20,7 +20,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pipeline.common import blob, config
+from pipeline.common import blob, config, db
 from pipeline.common.cadence import is_due
 from pipeline.common.kalshi import KalshiClient, _to_dec
 from pipeline.ingest.kalshi_discovery import NBA_PLAYER_PROPS, NFL_PLAYER_PROPS
@@ -204,16 +204,28 @@ def main():
     a = ap.parse_args()
 
     started = time.time()
-    r = snapshot(
-        sports=tuple(s.strip() for s in a.sports.split(",") if s.strip()),
-        with_orderbook=not a.no_orderbook,
-        adaptive=not a.no_adaptive,
-    )
+    # Records the outcome either way, so the UI can report staleness instead of
+    # silently serving an old snapshot as if it were current (Sections 6 and 12).
+    with db.track("kalshi_archiver") as run:
+        r = snapshot(
+            sports=tuple(s.strip() for s in a.sports.split(",") if s.strip()),
+            with_orderbook=not a.no_orderbook,
+            adaptive=not a.no_adaptive,
+        )
+        run["rows"] = r["rows"]
+        run["meta"] = {
+            "skipped": r.get("skipped", 0),
+            "quoted": r.get("quoted", 0),
+            "blob": bool(r.get("blob_url")),
+            "errors": len(r.get("errors") or []),
+        }
+
     took = time.time() - started
     print(f"rows={r['rows']} skipped={r.get('skipped', 0)} quoted={r.get('quoted', 0)} "
           f"orderbooks={r.get('orderbooks', 0)} took={took:.1f}s")
     print(f"path={r['path']}")
     print(f"blob={'uploaded' if r.get('blob_url') else 'not configured'}")
+    print(f"run_recorded={'yes' if db.is_configured() else 'no db configured'}")
     if r["errors"]:
         print(f"ERRORS ({len(r['errors'])}):")
         for e in r["errors"]:
