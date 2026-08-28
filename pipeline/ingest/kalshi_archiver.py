@@ -20,7 +20,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pipeline.common import config
+from pipeline.common import blob, config
 from pipeline.common.cadence import is_due
 from pipeline.common.kalshi import KalshiClient, _to_dec
 from pipeline.ingest.kalshi_discovery import NBA_PLAYER_PROPS, NFL_PLAYER_PROPS
@@ -171,6 +171,16 @@ def snapshot(
     path = out_dir / f"snap_{now.strftime('%H%M%S')}.parquet"
     pq.write_table(df, path, compression="zstd")
 
+    # Parquet to disk FIRST, remote second. A blob outage must never cost a
+    # snapshot, and the local file is what the next run reads for cadence.
+    blob_url = None
+    if blob.is_configured():
+        try:
+            blob_url = blob.put_file(
+                f"market_snapshots/date={day}/{path.name}", path)
+        except Exception as e:  # durability is best-effort; the run still succeeded
+            errors.append({"stage": "blob_upload", "error": repr(e)[:200]})
+
     quoted = sum(
         1 for r in rows if r["yes_bid"] is not None or r["yes_ask"] is not None
     )
@@ -181,6 +191,7 @@ def snapshot(
         "skipped": skipped,
         "errors": errors,
         "path": str(path),
+        "blob_url": blob_url,
     }
 
 
@@ -202,6 +213,7 @@ def main():
     print(f"rows={r['rows']} skipped={r.get('skipped', 0)} quoted={r.get('quoted', 0)} "
           f"orderbooks={r.get('orderbooks', 0)} took={took:.1f}s")
     print(f"path={r['path']}")
+    print(f"blob={'uploaded' if r.get('blob_url') else 'not configured'}")
     if r["errors"]:
         print(f"ERRORS ({len(r['errors'])}):")
         for e in r["errors"]:

@@ -32,6 +32,9 @@ jobs:
         env:
           KALSHI_API_BASE: ${{ vars.KALSHI_API_BASE || 'https://api.elections.kalshi.com/trade-api/v2' }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Durable home for the archive. Without this the only copy in CI is a
+          # GitHub artifact that expires after 90 days -- mid-season.
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: uv run python -m pipeline.ingest.kalshi_archiver --sports nfl,nba
 
       # Parquet first, DB second: a database outage must never cost us the data.
