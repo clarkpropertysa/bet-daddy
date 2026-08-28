@@ -254,3 +254,67 @@ the largest 2025 split (Michael Wilson without Marvin Harrison Jr., +17.7pp) has
 **4.6** other regulars out, while Drake London without Kirk Cousins (+13.0pp) has
 **1.3**. The smaller delta is the more trustworthy read. Proper causal attribution
 needs a multivariate model and is deliberately not claimed here.
+
+---
+
+### D15. Defense grades are inferred, and "unknown" is not a gap
+
+True shadow-coverage data is not free, so pass defense is graded from what a defense
+actually allowed, split by target depth band (short <10 air yards, intermediate 10-19,
+deep 20+) and receiver position. Every row carries `provenance='inferred_from_pbp'`;
+the UI must label it that way rather than implying charted coverage.
+
+EPA per target is primary, not yards allowed: yards are confounded by volume, and a
+defense facing 40 targets a game looks worse than one facing 25 regardless of quality.
+
+**Bug worth recording.** Bucketing runs with a NULL `run_location` as 'unknown'
+produced an average of **-2.086 EPA** across 30 teams -- a fake elite grade. Those are
+128 botched snaps and aborted plays (0.9% of runs), not a gap. They are now excluded
+from gap splits but retained in the team-level 'all' row, since they did happen.
+
+Ranks are suppressed to NULL below 25 targets/carries. A rank computed off 6 targets
+is a lie with a number attached.
+
+---
+
+### D16. Simulate the distribution; never emit a point estimate
+
+A prop is a question about a tail, so the model draws the full distribution:
+
+  1. Volume driver first (targets/carries) as a negative binomial -- football counts
+     are overdispersed relative to Poisson, and game script alone guarantees it.
+  2. P(inactive) as a DISCRETE mass at zero. A DNP is the worst outcome for an over
+     and must not be smoothed into the volume distribution.
+  3. Efficiency drawn from the player's OWN empirical per-catch/per-carry outcomes.
+     Yards per catch is strongly right-skewed (Ja'Marr Chase 2025: mean 11.3, median
+     10.0, max 64). A normal or gamma fit smooths away the breakaway tail, and that
+     tail is where props settle.
+  4. Every adjustment is a named, logged multiplier, so the Why panel shows the chain
+     rather than a black box.
+
+`P(over)` uses a STRICT inequality. Kalshi settles on more-than-the-strike, and `>=`
+would systematically overprice every over on integer markets like receptions, where
+landing exactly on the strike is common.
+
+Runs are seeded. An unseeded model cannot be audited or replayed in a backtest.
+
+---
+
+### D17. Edge is priced off the ask, and tiers are earned forward
+
+`net_edge = (model_prob - ask) * 100 - exact_fee`, evaluated on BOTH sides: an over
+that is rich means the under is cheap, and either is tradeable on Kalshi.
+
+**Price off the ask, never the midpoint.** The ask is what you actually pay; the
+midpoint invents edge equal to half the spread, which on thin prop markets is most of
+the apparent edge.
+
+The economics this exposes: a model **2 points better than the market at 50c** clears
+2.00c gross and nets **0.25c** after the 1.75c fee. A hit-rate tool that ignores fees
+recommends that bet enthusiastically. This is the single most important number in the
+product.
+
+**Tiering is forward-CLV, per D1.** Promotion requires BOTH a sample size and a
+POSITIVE mean CLV. A signal family with 900 settled contracts and -0.8c CLV is
+disproven, not validated, and stays UNVALIDATED -- promoting on volume alone is how a
+tool launders a losing model.
