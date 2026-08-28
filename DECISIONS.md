@@ -136,3 +136,34 @@ needs a real investigation before October, not an assumption.
 
 Kalshi NBA prop series all exist (`KXNBAPTS`/`REB`/`AST`/`3PT`/`PRA`/`BLK`/`STL`), so the
 market side is ready when the stats side is solved.
+
+---
+
+### D10. Adaptive snapshot cadence, and Blob for the archive
+
+**Storage question resolved.** Vercel deprecated its own Postgres in Dec 2024 and
+migrated to Neon, so "Vercel vs Neon" is not a real choice -- Vercel Postgres *is*
+Neon. Provisioning through the Vercel Marketplace is preferred: one account, and
+DATABASE_URL/DIRECT_URL auto-inject into the project.
+
+**Blob cannot replace the database.** No SQL, no indexes, no partial updates. Signal
+grading mutates rows after settlement (closingPrice, clvCents), which in Parquet means
+rewriting whole partitions. The Prop Board needs indexed filtered reads.
+
+**But Blob is the right home for the archive**, and it closes a real hole: the archive
+currently persists in CI only as a GitHub Actions artifact with 90-day retention. The
+one irreplaceable asset in the system was set to silently expire after three months.
+
+**Cadence.** Kalshi lists markets ~15 days before close. Flat 15-minute sampling costs
+1,440 snapshots per market and 3.91 GB/season with orderbooks -- over every free tier.
+CLV is measured at T-60m, so density far from close buys almost nothing:
+
+    <= 6h   every 15 min   (captures T-60m precisely)
+    6-48h   every 60 min
+    > 48h   every 6h
+
+118 snapshots per market instead of 1,440. 0.32 GB/season, inside Blob's 1 GB free tier
+four times over. Due-ness is computed from the archive itself (max(ts) per market), so
+there is no side state to drift out of sync with the data.
+
+Escape hatch if the archive outgrows 1 GB: Cloudflare R2 (10 GB free, S3-compatible).

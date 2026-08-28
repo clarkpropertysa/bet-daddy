@@ -18,7 +18,10 @@ from datetime import datetime, timezone
 
 import polars as pl
 
+import duckdb
+
 from pipeline.common import config
+from pipeline.common.cadence import is_due
 from pipeline.common.kalshi import KalshiClient, _to_dec
 from pipeline.ingest.kalshi_discovery import NBA_PLAYER_PROPS, NFL_PLAYER_PROPS
 
@@ -62,13 +65,33 @@ def _strike(ticker: str) -> float | None:
         return None
 
 
+def _last_seen() -> dict[str, datetime]:
+    """Most recent snapshot ts per market, read from the Parquet archive itself.
+
+    The archive is the source of truth for what we already have -- no side state to
+    drift out of sync with the data.
+    """
+    root = config.ARCHIVE_DIR / "market_snapshots"
+    if not any(root.rglob("*.parquet")):
+        return {}
+    # epoch seconds, not a timestamp object: DuckDB needs pytz to materialise a
+    # tz-aware datetime, and an extra dependency for an integer is not worth it.
+    rows = duckdb.connect().execute(
+        f"""select market_ticker, max(epoch(ts))
+            from read_parquet('{root}/**/*.parquet') group by 1"""
+    ).fetchall()
+    return {t: datetime.fromtimestamp(e, tz=timezone.utc) for t, e in rows}
+
+
 def snapshot(
     sports: tuple[str, ...] = ("nfl", "nba"),
     with_orderbook: bool = True,
     orderbook_cap: int = 400,
+    adaptive: bool = True,
 ) -> dict:
     client = KalshiClient()
     now = datetime.now(timezone.utc)
+    last = _last_seen() if adaptive else {}
 
     series_map: dict[str, tuple[str, str]] = {}
     if "nfl" in sports:
@@ -76,7 +99,7 @@ def snapshot(
     if "nba" in sports:
         series_map |= {k: ("nba", v) for k, v in NBA_PLAYER_PROPS.items()}
 
-    rows, errors, ob_calls = [], [], 0
+    rows, errors, ob_calls, skipped = [], [], 0, 0
 
     for series_ticker, (sport, market_type) in series_map.items():
         try:
@@ -88,6 +111,15 @@ def snapshot(
         for m in markets:
             ticker = m.get("ticker")
             close = _parse_ts(m.get("close_time"))
+            mtc = int((close - now).total_seconds() // 60) if close else None
+
+            if adaptive:
+                prev = last.get(ticker)
+                elapsed = (now - prev).total_seconds() / 60 if prev else None
+                if not is_due(mtc, elapsed):
+                    skipped += 1
+                    continue
+
             yb, ya = _to_dec(m.get("yes_bid")), _to_dec(m.get("yes_ask"))
 
             ob_json = None
@@ -117,14 +149,14 @@ def snapshot(
                 "strike": _strike(ticker or ""),
                 "status": m.get("status"),
                 "close_time": close,
-                "mins_to_close": int((close - now).total_seconds() // 60) if close else None,
+                "mins_to_close": mtc,
                 "result": m.get("result") or None,
                 "orderbook": ob_json,
                 "source": "kalshi:/markets",
             })
 
     if not rows:
-        return {"rows": 0, "errors": errors, "path": None}
+        return {"rows": 0, "skipped": skipped, "errors": errors, "path": None}
 
     df = pl.DataFrame(rows, schema=SCHEMA)
     day = now.strftime("%Y-%m-%d")
@@ -140,6 +172,7 @@ def snapshot(
         "rows": df.height,
         "quoted": quoted,
         "orderbooks": ob_calls,
+        "skipped": skipped,
         "errors": errors,
         "path": str(path),
     }
@@ -149,16 +182,19 @@ def main():
     ap = argparse.ArgumentParser(description="Archive Kalshi player-prop market snapshots")
     ap.add_argument("--sports", default="nfl,nba")
     ap.add_argument("--no-orderbook", action="store_true")
+    ap.add_argument("--no-adaptive", action="store_true",
+                    help="snapshot every market regardless of cadence")
     a = ap.parse_args()
 
     started = time.time()
     r = snapshot(
         sports=tuple(s.strip() for s in a.sports.split(",") if s.strip()),
         with_orderbook=not a.no_orderbook,
+        adaptive=not a.no_adaptive,
     )
     took = time.time() - started
-    print(f"rows={r['rows']} quoted={r.get('quoted', 0)} orderbooks={r.get('orderbooks', 0)} "
-          f"took={took:.1f}s")
+    print(f"rows={r['rows']} skipped={r.get('skipped', 0)} quoted={r.get('quoted', 0)} "
+          f"orderbooks={r.get('orderbooks', 0)} took={took:.1f}s")
     print(f"path={r['path']}")
     if r["errors"]:
         print(f"ERRORS ({len(r['errors'])}):")
