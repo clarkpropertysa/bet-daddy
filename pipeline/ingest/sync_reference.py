@@ -50,10 +50,11 @@ def sync_players(players_path: str, roster_path: str) -> int:
     rows = _rows(f"""
         select distinct
             p.gsis_id, p.display_name, coalesce(r.position, p.position) as position,
-            r.team
+            r.team, r.headshot_url
         from read_parquet('{players_path}') p
         left join (
-            select distinct gsis_id, position, team from read_parquet('{roster_path}')
+            select distinct gsis_id, position, team, headshot_url
+            from read_parquet('{roster_path}')
             where gsis_id is not null
         ) r on r.gsis_id = p.gsis_id
         where p.gsis_id is not null and p.display_name is not null
@@ -61,19 +62,21 @@ def sync_players(players_path: str, roster_path: str) -> int:
     """)
     now = datetime.now(timezone.utc)
     with psycopg.connect(config.DATABASE_URL) as c, c.cursor() as cur:
-        for gsis, name, pos, team in rows:
+        for gsis, name, pos, team, headshot in rows:
             cur.execute(
                 """
                 insert into "Player"
                     (id, sport, "fullName", position, "teamId", "gsisId",
-                     "externalIds", source, "ingestedAt")
-                values (%s, 'nfl'::"Sport", %s, %s, %s, %s, '{}'::jsonb, %s, %s)
+                     "headshotUrl", "externalIds", source, "ingestedAt")
+                values (%s, 'nfl'::"Sport", %s, %s, %s, %s, %s, '{}'::jsonb, %s, %s)
                 on conflict ("gsisId") do update
-                  set "fullName" = excluded."fullName",
-                      position   = excluded.position,
-                      "teamId"   = excluded."teamId"
+                  set "fullName"    = excluded."fullName",
+                      position      = excluded.position,
+                      "teamId"      = excluded."teamId",
+                      "headshotUrl" = coalesce(excluded."headshotUrl",
+                                               "Player"."headshotUrl")
                 """,
-                (f"nfl:{gsis}", name, pos, f"nfl:{team}", gsis, SOURCE, now),
+                (f"nfl:{gsis}", name, pos, f"nfl:{team}", gsis, headshot, SOURCE, now),
             )
     return len(rows)
 

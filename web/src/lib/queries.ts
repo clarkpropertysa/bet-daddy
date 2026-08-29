@@ -4,6 +4,7 @@ export type BoardRow = {
   signalId: string;
   marketTicker: string;
   player: string;
+  headshotUrl: string | null;
   position: string | null;
   team: string | null;
   marketType: string;
@@ -34,6 +35,7 @@ export async function getBoard(limit = 200): Promise<BoardRow[]> {
       l.id                as "signalId",
       l."marketTicker"    as "marketTicker",
       coalesce(p."fullName", 'unresolved') as player,
+      p."headshotUrl"     as "headshotUrl",
       p.position          as position,
       t.abbrev            as team,
       pr."marketType"     as "marketType",
@@ -96,5 +98,30 @@ export async function getClvSummary() {
     where r."clvCents" is not null
     group by s.tier
     order by s.tier
+  `;
+}
+
+
+export type PlayerRow = {
+  id: string;
+  fullName: string;
+  position: string | null;
+  headshotUrl: string | null;
+  team: string | null;
+};
+
+/** Rostered skill-position players, for the player index. */
+export async function getPlayers(limit = 400): Promise<PlayerRow[]> {
+  return prisma.$queryRaw<PlayerRow[]>`
+    select p.id, p."fullName", p.position, p."headshotUrl", t.abbrev as team
+    from "Player" p
+    left join "Team" t on t.id = p."teamId"
+    where p.position in ('QB','RB','WR','TE')
+      and p."teamId" is not null
+    order by
+      case p.position when 'QB' then 1 when 'RB' then 2
+                      when 'WR' then 3 else 4 end,
+      p."fullName"
+    limit ${limit}
   `;
 }

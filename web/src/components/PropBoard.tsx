@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Empty } from "@/components/Empty";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Tier, type TierName } from "@/components/Tier";
 import { WhyPanel, type WhyRow } from "@/components/WhyPanel";
 import { edgeGlyph, pct, priceCents, signedCents } from "@/lib/format";
@@ -14,6 +15,7 @@ export type Row = WhyRow & {
   sampleN: number;
   implausible: boolean;
   modelVersion: string;
+  headshotUrl: string | null;
 };
 
 type SortKey = "edge" | "player" | "model" | "ask" | "kelly";
@@ -150,9 +152,17 @@ export function PropBoard({ rows }: { rows: Row[] }) {
                 className="cursor-pointer border-b border-line/60 transition-colors last:border-0 hover:bg-surface-2"
               >
                 <Td>
-                  <span className="font-medium text-ink">{r.player}</span>
-                  {r.position && <span className="ml-1.5 text-[11px] text-ink-3">{r.position}</span>}
-                  {r.team && <span className="ml-1 text-[11px] text-ink-3">· {r.team}</span>}
+                  <span className="flex items-center gap-2.5">
+                    <PlayerAvatar name={r.player} url={r.headshotUrl} size={28} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium leading-tight text-ink">
+                        {r.player}
+                      </span>
+                      <span className="block text-[10px] leading-tight text-ink-3">
+                        {[r.position, r.team].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </span>
                 </Td>
                 <Td className="text-ink-2">{r.marketType}</Td>
                 <Td align="right" mono>{r.strike ?? "—"}</Td>

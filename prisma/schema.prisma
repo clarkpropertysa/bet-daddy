@@ -60,6 +60,9 @@ model Player {
   team        Team?    @relation(fields: [teamId], references: [id])
   gsisId      String?  @unique          // nflverse
   nbaPersonId Int?     @unique
+  /// Official NFL CDN headshot. Stored raw; the app injects a Cloudinary sizing
+  /// transform at render time -- the unsized originals are ~4MB PNGs.
+  headshotUrl String?
   externalIds Json     @default("{}")   // espn, pfr, sleeper, sportradar...
   aliases     PlayerAlias[]
   source      String

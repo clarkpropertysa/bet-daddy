@@ -508,3 +508,27 @@ rather than accumulate.
 This also corrects an overstatement in D1. Prop *prices* are recoverable for ~22 days;
 what is genuinely unrecoverable is orderbook **depth**, and any market older than the
 retention window.
+
+---
+
+### D27. Player photos: the transform is the whole story
+
+nflverse rosters carry `headshot_url` at **96.2% coverage** (97.6% of synced players),
+pointing at the official NFL CDN.
+
+**The stored originals are ~4MB PNGs.** Fifty rows on a board would be ~200MB of
+transfer. They are Cloudinary-backed, so injecting a sizing transform into the
+delivery segment takes the same image to **~4KB** -- a thousandfold reduction:
+
+    .../image/upload/f_auto,q_auto/league/<id>                        ~4 MB
+    .../image/upload/f_auto,q_auto,c_fill,g_face,h_96,w_96/league/<id> ~4 KB
+
+`g_face` matters as much as the size: a plain centre crop on these images lands on
+the chest, not the face.
+
+Served with a plain `<img>` rather than next/image: the CDN already returns the exact
+pixel dimensions requested, so the Next optimiser would add a second hop for nothing.
+
+Two fallbacks, because a missing photo must never look like a data error: ~2.4% of
+rostered players have no headshot, and the CDN occasionally 404s an id the roster
+still carries. Both render initials.

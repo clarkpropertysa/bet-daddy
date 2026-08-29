@@ -2,12 +2,14 @@
 
 import { useEffect } from "react";
 import { DistributionChart } from "@/components/DistributionChart";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { pct, priceCents, signedCents } from "@/lib/format";
 
 type Step = { step: string; multiplier?: number; value: number; detail?: string };
 
 export type WhyRow = {
   player: string;
+  headshotUrl?: string | null;
   team: string | null;
   marketType: string;
   strike: number | null;
@@ -60,7 +62,9 @@ export function WhyPanel({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-line bg-surface-1/95 px-5 py-4 backdrop-blur">
-          <div>
+          <div className="flex items-center gap-3">
+            <PlayerAvatar name={row.player} url={row.headshotUrl} size={40} />
+            <div>
             <h2 className="text-[15px] font-semibold tracking-tight text-ink">
               {row.player}
               {row.team && <span className="ml-2 text-xs font-normal text-ink-3">{row.team}</span>}
@@ -71,6 +75,7 @@ export function WhyPanel({
                 <> · strike <span className="font-mono text-ink-2">{row.strike}</span></>
               )}
             </p>
+            </div>
           </div>
           <button
             onClick={onClose}
