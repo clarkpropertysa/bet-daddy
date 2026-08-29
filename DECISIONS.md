@@ -471,3 +471,40 @@ and availability, not on opportunity.
   not a reveal, and a deterministic render is also testable.
 - `--pos`/`--neg` sit at CVD ΔE 6.5 for protanopia, so **colour is never the only
   channel** -- every edge carries an explicit sign and a directional glyph.
+
+---
+
+### D26. The cron does not need to be reliable, because history is reconstructable
+
+GitHub's scheduler never fired the archiver: **zero scheduled runs in 4+ hours** while
+manual dispatch succeeded every time. Actions was enabled, the workflow `active`, the
+cron valid, the file on the default branch. Nothing was misconfigured -- free-tier
+private repos simply get their schedules dropped, and `*/15` lands on the most
+contended slot on the platform.
+
+Rather than fight it, the measurement that matters:
+
+* **Kalshi retains settled prop markets for ~22 days.** Measured 2026-08-29: the
+  reachable window ran 26AUG06 -> 26AUG27.
+* **Candlesticks are fetchable retroactively at 1-MINUTE granularity** inside that
+  window, and carry yes_bid, yes_ask, last price, volume and open interest.
+
+So price history is NOT lost when a tick is missed. It is recoverable for three weeks.
+This inverts the architecture:
+
+| job | role | consequence if it misses |
+|---|---|---|
+| `backfill-history` (2x daily) | **durable path** | none, until 22 days elapse |
+| `archive-markets` (15 min) | orderbook depth only | depth for that instant, nothing else |
+
+Backfill granularity mirrors the adaptive cadence: hourly across a market's life, then
+1-minute across the final 8 hours where CLV is actually measured. First run captured
+**70,862 price rows across 323 markets**, against 2,456 for the hourly-only version.
+
+Two smaller changes: every cron is now offset off the round hour/quarter-hour, and the
+coarse and fine passes dedupe on `(market_ticker, ts)` so overlapping runs converge
+rather than accumulate.
+
+This also corrects an overstatement in D1. Prop *prices* are recoverable for ~22 days;
+what is genuinely unrecoverable is orderbook **depth**, and any market older than the
+retention window.

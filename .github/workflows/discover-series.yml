@@ -4,7 +4,7 @@ name: discover-series
 
 on:
   schedule:
-    - cron: "0 12 * * 1"   # Mondays
+    - cron: "23 12 * * 1"   # Mondays
   workflow_dispatch:
 
 jobs:

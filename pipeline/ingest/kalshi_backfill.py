@@ -4,9 +4,17 @@ The /markets listing reports volume=null even for markets that genuinely traded,
 carries no price history at all. Candlesticks DO hold both -- verified on a settled
 preseason market showing 726 contracts of real volume where the listing showed null.
 
-Kalshi retains only recently-settled prop markets (D1), so this reaches the current
-preseason and nothing earlier. That is precisely why the forward archiver matters: this
-is the last of the recoverable history, and it is days old, not seasons.
+MEASURED RETENTION: Kalshi keeps settled prop markets reachable for about **22 days**
+(on 2026-08-29 the window ran 26AUG06 -> 26AUG27). Inside that window, candlesticks
+support 1-MINUTE granularity fetched retroactively.
+
+That makes this job -- not the 15-minute archiver -- the durable path for price
+history. A missed archiver run costs nothing recoverable as long as this job runs at
+least once inside the retention window. The live archiver's unique contribution is
+orderbook DEPTH, which candlesticks do not carry.
+
+Granularity mirrors the adaptive cadence: minute resolution where closing line value
+is actually measured, coarse resolution where it is not.
 """
 from __future__ import annotations
 
@@ -30,7 +38,16 @@ def _dec(candle: dict, group: str, field: str):
     return None
 
 
-def backfill(series: dict[str, str], lookback_days: int = 14) -> dict:
+# CLV is measured at T-60m, so the final hours need minute resolution; a market
+# sitting three weeks from close does not.
+FINE_WINDOW_HOURS = 8
+
+
+def backfill(
+    series: dict[str, str],
+    lookback_days: int = 21,
+    fine: bool = True,
+) -> dict:
     client = KalshiClient()
     now = datetime.now(timezone.utc)
     end_ts = int(now.timestamp())
@@ -49,12 +66,26 @@ def backfill(series: dict[str, str], lookback_days: int = 14) -> dict:
             ticker = m.get("ticker")
             close = _parse_ts(m.get("close_time"))
             markets_seen += 1
+            candles = []
             try:
+                # coarse pass over the whole life of the market
                 candles = client.candlesticks(
                     series_ticker, ticker, start_ts, end_ts, period_interval=60
                 )
                 time.sleep(0.1)
+                if fine and close:
+                    # minute resolution over the window where CLV is measured
+                    fine_start = int(close.timestamp()) - FINE_WINDOW_HOURS * 3600
+                    fine_end = int(close.timestamp())
+                    if fine_end > start_ts:
+                        candles += client.candlesticks(
+                            series_ticker, ticker,
+                            max(fine_start, start_ts), fine_end, period_interval=1
+                        )
+                        time.sleep(0.1)
             except Exception:
+                pass
+            if not candles:
                 continue
             if not candles:
                 continue
@@ -86,6 +117,17 @@ def backfill(series: dict[str, str], lookback_days: int = 14) -> dict:
     if not rows:
         return {"rows": 0, "markets": markets_seen, "errors": errors, "path": None}
 
+    # coarse and fine passes overlap, and re-runs repeat rows: dedupe on the
+    # natural key so the archive converges instead of accumulating duplicates.
+    seen: set[tuple] = set()
+    deduped = []
+    for r in rows:
+        k = (r["market_ticker"], r["ts"])
+        if k not in seen:
+            seen.add(k)
+            deduped.append(r)
+    rows = deduped
+
     tbl = pa.Table.from_pylist(rows, schema=SCHEMA)
     out = config.ARCHIVE_DIR / "market_snapshots" / "backfill"
     out.mkdir(parents=True, exist_ok=True)
@@ -99,10 +141,12 @@ def backfill(series: dict[str, str], lookback_days: int = 14) -> dict:
 
 def main():
     ap = argparse.ArgumentParser(description="Backfill Kalshi candlestick history")
-    ap.add_argument("--days", type=int, default=14)
+    ap.add_argument("--days", type=int, default=21,
+                    help="Kalshi retains settled prop markets ~22 days")
+    ap.add_argument("--coarse-only", action="store_true")
     a = ap.parse_args()
     with db.track("kalshi_backfill") as run:
-        r = backfill(NFL_PLAYER_PROPS, a.days)
+        r = backfill(NFL_PLAYER_PROPS, a.days, fine=not a.coarse_only)
         run["rows"] = r["rows"]
         run["meta"] = {"markets": r["markets"], "with_prices": r.get("with_prices", 0)}
     print(f"markets={r['markets']} with_prices={r.get('with_prices',0)} rows={r['rows']}")

@@ -1,0 +1,49 @@
+# THE DURABLE PATH for price history.
+#
+# Kalshi keeps settled prop markets reachable for ~22 days (measured 2026-08-29:
+# the window ran 26AUG06 -> 26AUG27), and inside that window candlesticks are
+# fetchable retroactively at 1-MINUTE granularity.
+#
+# So price history does not depend on catching every 15-minute tick. As long as this
+# job runs at least once inside the retention window, nothing recoverable is lost --
+# which matters because GitHub's scheduler is unreliable on free-tier private repos
+# and has been skipping the archiver's */15 schedule entirely.
+#
+# Runs twice daily for margin: even if most firings are dropped, one success every
+# three weeks is sufficient.
+name: backfill-history
+
+on:
+  schedule:
+    # Deliberately off the round quarter/hour. GitHub queues every :00 cron on the
+    # planet at once and sheds the overflow; odd minutes fare measurably better.
+    - cron: "37 5,17 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: backfill-history
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+
+      - name: Reconstruct candlestick history
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: uv run python -m pipeline.ingest.kalshi_backfill --days 21
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backfill-${{ github.run_id }}
+          path: data/archive/market_snapshots/
+          retention-days: 90
+          if-no-files-found: error

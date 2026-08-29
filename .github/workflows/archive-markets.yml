@@ -1,14 +1,18 @@
-# The single most time-critical job in this repo.
+# Live orderbook capture. BEST EFFORT, and no longer the critical path.
 #
-# Kalshi does not retain settled player-prop markets across seasons (verified
-# 2026-08-28: zero 2025-season prop markets were reachable via the API). Price
-# history not captured here is gone permanently — it cannot be bought or backfilled.
-# Every 15 minutes, forever, starting now.
+# Candlesticks reconstruct price history retroactively at 1-minute granularity for
+# ~22 days (see backfill-history.yml), so a missed tick here costs nothing
+# recoverable. What this job uniquely captures is orderbook DEPTH, which
+# candlesticks do not carry.
+#
+# GitHub's scheduler has been dropping the */15 schedule on this repo entirely
+# (zero scheduled runs in 4+ hours while manual dispatch worked), so the cadence is
+# offset off the round quarter-hour, where contention is worst.
 name: archive-markets
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "9,24,39,54 * * * *"
   workflow_dispatch:
 
 concurrency:
