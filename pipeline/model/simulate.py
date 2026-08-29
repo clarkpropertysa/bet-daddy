@@ -193,3 +193,51 @@ def project_rushing_yards(
     out["explain"] = vp.explain()
     out["mean_carries"] = float(carries.mean())
     return out
+
+
+def project_passing_yards(
+    vp: VolumeProjection,
+    completion_rate: float,
+    yards_per_completion_samples: np.ndarray,
+    strikes: list[float],
+    efficiency_multiplier: float = 1.0,
+    iterations: int = DEFAULT_ITERATIONS,
+    seed: int | None = None,
+) -> dict:
+    """Attempts -> completions (binomial) -> yards (empirical per completion).
+
+    Same shape as receiving: passing yards are right-skewed for the same reason --
+    a single deep completion moves the total more than several checkdowns.
+    """
+    rng = np.random.default_rng(seed)
+    attempts = simulate_volume(vp, rng, iterations)
+    comps = rng.binomial(attempts.astype(int), np.clip(completion_rate, 0.0, 1.0))
+    yards = simulate_from_empirical(
+        comps.astype(float), yards_per_completion_samples, rng, efficiency_multiplier)
+    out = summarize(yards, strikes)
+    out["explain"] = vp.explain()
+    out["mean_attempts"] = float(attempts.mean())
+    out["mean_completions"] = float(comps.mean())
+    return out
+
+
+def project_passing_tds(
+    vp: VolumeProjection,
+    td_rate_per_attempt: float,
+    strikes: list[float],
+    iterations: int = DEFAULT_ITERATIONS,
+    seed: int | None = None,
+) -> dict:
+    """Attempts -> touchdowns (binomial on per-attempt TD rate).
+
+    Kept as a binomial on attempts rather than a Poisson on games: TD counts are
+    bounded by attempts, and the attempt distribution already carries the game-script
+    variance that a raw Poisson would have to invent.
+    """
+    rng = np.random.default_rng(seed)
+    attempts = simulate_volume(vp, rng, iterations)
+    tds = rng.binomial(attempts.astype(int), np.clip(td_rate_per_attempt, 0.0, 1.0))
+    out = summarize(tds.astype(float), strikes)
+    out["explain"] = vp.explain()
+    out["mean_attempts"] = float(attempts.mean())
+    return out

@@ -410,3 +410,64 @@ element rule outranks Tailwind utilities in the cascade, so it silently overrode
 Prisma is pinned to 6.19.3 across root and /web. `create-next-app` had pulled
 prisma 8.0.0-rc.12 with a mismatched client 7.10.0 -- a release candidate, into the
 package that talks to the database.
+
+---
+
+### D23. Preseason produces no signals, by refusal
+
+Preseason snap distribution bears no relation to the regular season -- starters play
+a series or two. A smoke run projecting preseason markets from 2025 regular-season
+usage produced an average net edge of **+33c**, with individual rows above +90c. Those
+were not edges; they were the model being wrong against a market that was right.
+
+The job now REFUSES preseason tickers rather than leaving it to a caller to remember,
+and the blanket `preseason_usage` fudge multiplier is deleted. `--allow-preseason`
+exists for diagnostics only.
+
+**The smoke run was still worth it**: on real prices and real settlements it exposed
+three genuine bugs before week 1.
+
+1. **Untradeable entry prices.** 48% of preseason entry asks sat at 0c or 100c. A 0c
+   ask is not a fillable price -- it is an empty or one-sided book reported as a
+   number. Entry prices are now bounded to 1-99c.
+2. **Strike rendered as "—" everywhere.** The board joined `MarketSnapshot` for the
+   strike, but that table is empty by design: the archive lives in Parquet, not
+   Postgres. The strike is now parsed off the ticker.
+3. **No implausibility check.** A model that disagrees with the market by more than
+   50 points is missing something the market knows -- a scratch, a role change,
+   weather. Those rows are flagged and hidden by default, because a board sorted by
+   edge would otherwise put the model's worst failures at the top and make the tool
+   look most confident exactly where it is most broken.
+
+---
+
+### D24. Adjustments: shape from data, scale as a stated prior
+
+Each multiplier is named, logged, and rendered in the Why panel.
+
+`opponent_defense` derives from a team's EPA allowed relative to the league mean,
+expressed in standard deviations and **saturated at ±2σ**. Saturation is not
+cosmetic: without it a single outlier defence off a thin sample yields an unbounded
+multiplier. NYJ (worst 2025 pass defence) resolves to 1.056; LAC to 0.948.
+
+The SHAPE is data. The SCALE -- how far one sigma should move a projection -- is a
+prior, and cannot be fitted until forward CLV exists across a few hundred settled
+contracts. So the swings are deliberately small (±8% defence, ±3% rest). Given the
+fee floor, an uncalibrated multiplier that is too large manufactures edge, while one
+that is too small merely fails to find some. The second error is far cheaper.
+
+Rest adjusts volume only slightly: the well-evidenced rest effects are on efficiency
+and availability, not on opportunity.
+
+---
+
+### D25. UI: the surface must not look confident where the model is broken
+
+- A **non-production model banner** names the model version and warns when rows come
+  from a non-production run. Without it the board reads as full of great bets when it
+  is full of model error -- the exact failure Section 2 describes.
+- **Implausible edges are hidden by default** and badged when shown.
+- Chart mount animation is disabled: this is a reference chart read against a strike,
+  not a reveal, and a deterministic render is also testable.
+- `--pos`/`--neg` sit at CVD ΔE 6.5 for protanopia, so **colour is never the only
+  channel** -- every edge carries an explicit sign and a directional glyph.

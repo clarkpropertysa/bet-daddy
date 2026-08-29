@@ -1,157 +1,237 @@
 "use client";
 
-import { useState } from "react";
-import { priceCents, pct, signedCents } from "@/lib/format";
+import { useEffect } from "react";
+import { DistributionChart } from "@/components/DistributionChart";
+import { pct, priceCents, signedCents } from "@/lib/format";
 
 type Step = { step: string; multiplier?: number; value: number; detail?: string };
 
+export type WhyRow = {
+  player: string;
+  team: string | null;
+  marketType: string;
+  strike: number | null;
+  modelProb: number;
+  marketProb: number;
+  feeCents: number;
+  edgeCentsNet: number;
+  kelly: number;
+  reason: unknown;
+};
+
 /**
  * Section 9.9 -- the feature that makes the tool worth using over guessing.
- * Shows the full chain: baseline, each named adjustment, the simulated
- * distribution, the market price, the fee, and the net edge.
  *
- * Every number here comes from the stored signal, not a recomputation. Recomputing
- * at read time would show what the model thinks NOW, not what it thought when the
- * signal fired -- which is the question the panel exists to answer.
+ * Every number is read from the STORED signal, never recomputed. Recomputing at read
+ * time would answer "what does the model think now", when the question the panel
+ * exists for is "what did it think when this fired".
  */
 export function WhyPanel({
-  open,
-  onClose,
   row,
+  onClose,
 }: {
-  open: boolean;
+  row: WhyRow | null;
   onClose: () => void;
-  row: {
-    player: string;
-    marketType: string;
-    strike: number | null;
-    modelProb: number;
-    marketProb: number;
-    feeCents: number;
-    edgeCentsNet: number;
-    reason: unknown;
-  } | null;
 }) {
-  if (!open || !row) return null;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!row) return null;
 
   const reason = (row.reason ?? {}) as {
     explain?: Step[];
     percentiles?: Record<string, number>;
     mean?: number;
-    adjustments?: Step[];
   };
-  const chain = reason.explain ?? reason.adjustments ?? [];
+  const chain = reason.explain ?? [];
   const gross = (row.modelProb - row.marketProb) * 100;
+  const feeShare = gross > 0 ? Math.min(row.feeCents / gross, 1) : 1;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
       <aside
-        className="h-full w-full max-w-xl overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-5"
+        className="flex h-full w-full max-w-2xl flex-col overflow-y-auto border-l border-line-strong bg-surface-1 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-line bg-surface-1/95 px-5 py-4 backdrop-blur">
           <div>
-            <h2 className="text-base font-semibold text-zinc-100">{row.player}</h2>
-            <p className="text-xs text-zinc-500">
-              {row.marketType} {row.strike !== null ? `· strike ${row.strike}` : ""}
+            <h2 className="text-[15px] font-semibold tracking-tight text-ink">
+              {row.player}
+              {row.team && <span className="ml-2 text-xs font-normal text-ink-3">{row.team}</span>}
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-3">
+              {row.marketType}
+              {row.strike !== null && (
+                <> · strike <span className="font-mono text-ink-2">{row.strike}</span></>
+              )}
             </p>
           </div>
-          <button onClick={onClose} className="text-xs text-zinc-500 hover:text-zinc-200">
-            close
+          <button
+            onClick={onClose}
+            className="rounded border border-line px-2 py-1 text-[11px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink"
+          >
+            esc
           </button>
-        </div>
+        </header>
 
-        <section className="mt-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-            Volume chain
-          </h3>
-          {chain.length === 0 ? (
-            <p className="mt-2 text-xs text-zinc-600">
-              No adjustment chain stored for this signal.
-            </p>
-          ) : (
-            <ol className="mt-2 space-y-1">
-              {chain.map((s, i) => (
-                <li key={i} className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="text-zinc-400">
-                    {s.step}
-                    {s.detail && (
-                      <span className="ml-2 text-xs text-zinc-600">{s.detail}</span>
-                    )}
-                  </span>
-                  <span className="font-mono text-xs text-zinc-300">
-                    {s.multiplier !== undefined && (
-                      <span className="mr-2 text-zinc-500">×{s.multiplier.toFixed(3)}</span>
-                    )}
-                    {s.value.toFixed(2)}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-
-        {reason.percentiles && (
-          <section className="mt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-              Simulated distribution
-            </h3>
-            <div className="mt-2 grid grid-cols-5 gap-2 text-center">
-              {["10", "25", "50", "75", "90"].map((p) => (
-                <div key={p} className="rounded bg-zinc-900 py-2">
-                  <div className="text-[10px] text-zinc-500">p{p}</div>
-                  <div className="font-mono text-sm text-zinc-200">
-                    {reason.percentiles![p]?.toFixed(0) ?? "—"}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {row.strike !== null && (
-              <p className="mt-2 text-xs text-zinc-500">
-                Strike {row.strike} sits at the{" "}
-                {reason.percentiles["50"] !== undefined &&
-                row.strike > reason.percentiles["50"]
-                  ? "upper"
-                  : "lower"}{" "}
-                half of the simulated outcomes.
-              </p>
+        <div className="space-y-6 px-5 py-5">
+          <Section
+            title="Volume chain"
+            note="Each adjustment is a named multiplier applied to the baseline."
+          >
+            {chain.length === 0 ? (
+              <p className="text-xs text-ink-3">No adjustment chain stored.</p>
+            ) : (
+              <ol className="space-y-px overflow-hidden rounded border border-line">
+                {chain.map((s, i) => {
+                  const isBase = i === 0;
+                  return (
+                    <li
+                      key={i}
+                      className="flex items-baseline justify-between gap-3 bg-surface-2 px-3 py-2"
+                    >
+                      <span className="min-w-0 text-[13px]">
+                        <span className={isBase ? "text-ink-2" : "text-ink"}>{s.step}</span>
+                        {s.detail && (
+                          <span className="ml-2 text-[11px] text-ink-3">{s.detail}</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 font-mono text-xs">
+                        {s.multiplier !== undefined && (
+                          <span
+                            className={
+                              s.multiplier > 1
+                                ? "mr-2 text-pos"
+                                : s.multiplier < 1
+                                  ? "mr-2 text-neg"
+                                  : "mr-2 text-ink-3"
+                            }
+                          >
+                            {s.multiplier > 1 ? "↑" : s.multiplier < 1 ? "↓" : "·"}
+                            {s.multiplier.toFixed(3)}
+                          </span>
+                        )}
+                        <span className="text-ink">{s.value.toFixed(2)}</span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
-          </section>
-        )}
+          </Section>
 
-        <section className="mt-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-            Edge arithmetic
-          </h3>
-          <dl className="mt-2 space-y-1 text-sm">
-            <Row k="Model probability" v={pct(row.modelProb)} />
-            <Row k="Market ask" v={priceCents(row.marketProb)} />
-            <Row k="Gross edge" v={signedCents(gross)} />
-            <Row k="Kalshi fee" v={`−${row.feeCents.toFixed(2)}¢`} tone="text-amber-400" />
-            <div className="mt-1 border-t border-zinc-800 pt-1">
-              <Row
+          {reason.percentiles && (
+            <Section
+              title="Simulated distribution"
+              note="20,000 Monte Carlo draws. Efficiency bootstrapped from this player's own outcomes, so the right tail is preserved."
+            >
+              <DistributionChart
+                percentiles={reason.percentiles}
+                strike={row.strike}
+                mean={reason.mean}
+              />
+              <div className="mt-3 grid grid-cols-5 gap-1.5">
+                {["10", "25", "50", "75", "90"].map((p) => (
+                  <div key={p} className="rounded border border-line bg-surface-2 py-1.5 text-center">
+                    <div className="text-[10px] text-ink-3">p{p}</div>
+                    <div className="font-mono text-[13px] text-ink">
+                      {reason.percentiles![p]?.toFixed(0) ?? "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          <Section title="Edge arithmetic">
+            <dl className="overflow-hidden rounded border border-line">
+              <KV k="Model probability" v={pct(row.modelProb)} />
+              <KV k="Kalshi ask" v={priceCents(row.marketProb)} />
+              <KV k="Gross edge" v={signedCents(gross)} />
+              <KV k="Kalshi fee" v={`−${row.feeCents.toFixed(2)}¢`} tone="text-warn" />
+              <KV
                 k="Net edge"
                 v={signedCents(row.edgeCentsNet)}
-                tone={row.edgeCentsNet > 0 ? "text-emerald-400" : "text-red-400"}
-                bold
+                tone={row.edgeCentsNet > 0 ? "text-pos" : "text-neg"}
+                strong
               />
-            </div>
-          </dl>
-          <p className="mt-3 text-xs text-zinc-600">
-            The fee is charged on entry and is largest at mid-price (1.75¢ at 50¢).
-            An edge smaller than the fee is a losing bet, however good the model looks.
-          </p>
-        </section>
+              <KV k="Kelly fraction" v={`${(row.kelly * 100).toFixed(1)}%`} />
+            </dl>
+
+            {gross > 0 && (
+              <div className="mt-3">
+                <div className="mb-1 flex justify-between text-[10px] text-ink-3">
+                  <span>fee as share of gross edge</span>
+                  <span className="font-mono">{(feeShare * 100).toFixed(0)}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    className="h-full rounded-full bg-warn"
+                    style={{ width: `${feeShare * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+              The fee is charged on entry and peaks at mid-price — 1.75¢ at 50¢. An
+              edge smaller than the fee is a losing bet however good the model looks,
+              which is why the board sorts on net rather than gross.
+            </p>
+          </Section>
+        </div>
       </aside>
     </div>
   );
 }
 
-function Row({ k, v, tone, bold }: { k: string; v: string; tone?: string; bold?: boolean }) {
+function Section({
+  title,
+  note,
+  children,
+}: {
+  title: string;
+  note?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-zinc-400">{k}</dt>
-      <dd className={`font-mono text-xs ${tone ?? "text-zinc-200"} ${bold ? "font-bold" : ""}`}>
+    <section>
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-2">
+        {title}
+      </h3>
+      {note && <p className="mb-2 mt-0.5 text-[11px] leading-relaxed text-ink-3">{note}</p>}
+      <div className={note ? "" : "mt-2"}>{children}</div>
+    </section>
+  );
+}
+
+function KV({
+  k,
+  v,
+  tone,
+  strong,
+}: {
+  k: string;
+  v: string;
+  tone?: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-baseline justify-between gap-3 px-3 py-2 ${
+        strong ? "border-t border-line-strong bg-surface-3" : "bg-surface-2"
+      }`}
+    >
+      <dt className="text-[13px] text-ink-2">{k}</dt>
+      <dd
+        className={`font-mono text-xs ${tone ?? "text-ink"} ${strong ? "text-[13px] font-semibold" : ""}`}
+      >
         {v}
       </dd>
     </div>

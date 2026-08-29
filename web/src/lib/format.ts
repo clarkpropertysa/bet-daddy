@@ -18,6 +18,15 @@ export function signedCents(v: unknown, digits = 2): string {
   return `${n > 0 ? "+" : ""}${n.toFixed(digits)}¢`;
 }
 
+/**
+ * Directional glyph for an edge value. Required secondary encoding: the pos/neg
+ * pair sits at CVD ΔE 6.5 for protanopia, so colour can never be the only channel.
+ */
+export function edgeGlyph(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  return Number(v) > 0 ? "▲" : "▼";
+}
+
 export function edgeTone(v: unknown): string {
   if (v === null || v === undefined) return "text-zinc-500";
   const n = Number(v);

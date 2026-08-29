@@ -1,0 +1,132 @@
+"""Assemble per-player model inputs from the Parquet layer.
+
+Point-in-time by construction: every query takes a `season`/`through_week` bound and
+never reads beyond it. A projection for week N may only see weeks < N.
+
+Players with no prior data are SKIPPED with a recorded reason, never defaulted to a
+league average. Section 0 rule 3 -- a plausible invented baseline is exactly the kind
+of fake number that survives into the UI and destroys the point of the tool.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import duckdb
+import numpy as np
+
+
+@dataclass
+class PlayerInputs:
+    player_id: str
+    games: int
+    targets_per_game: float
+    catch_rate: float
+    carries_per_game: float
+    yards_per_catch: np.ndarray
+    yards_per_carry: np.ndarray
+    target_dispersion: float
+    carry_dispersion: float
+    # passing (QBs)
+    attempts_per_game: float = 0.0
+    completion_rate: float = 0.0
+    yards_per_completion: np.ndarray = None  # type: ignore[assignment]
+    attempt_dispersion: float = 1.0
+    pass_td_rate: float = 0.0
+
+
+class InsufficientHistory(Exception):
+    """Not enough prior data to project this player honestly."""
+
+
+MIN_GAMES = 4
+
+
+def load_player_inputs(
+    pbp_path: str,
+    player_id: str,
+    season_type: str = "REG",
+    through_week: int | None = None,
+    min_games: int = MIN_GAMES,
+) -> PlayerInputs:
+    con = duckdb.connect()
+    wk = f"and week < {int(through_week)}" if through_week is not None else ""
+
+    row = con.execute(f"""
+        with plays as (
+            select * from read_parquet('{pbp_path}')
+            where season_type = '{season_type}'
+              and coalesce(two_point_attempt, 0) = 0
+              and coalesce(qb_kneel, 0) = 0
+              {wk}
+        ),
+        rec as (
+            select game_id, count(*) t, sum(coalesce(complete_pass,0)) c
+            from plays where receiver_player_id = ? group by 1
+        ),
+        rush as (
+            select game_id, count(*) a from plays where rusher_player_id = ? group by 1
+        ),
+        pass as (
+            select game_id, count(*) att,
+                   sum(coalesce(complete_pass,0)) comp,
+                   sum(coalesce(pass_touchdown,0)) tds
+            from plays where passer_player_id = ? group by 1
+        )
+        select
+            (select count(*) from (
+                select game_id from rec union
+                select game_id from rush union
+                select game_id from pass)),
+            coalesce((select avg(t) from rec), 0),
+            coalesce((select sum(c)::double / nullif(sum(t),0) from rec), 0),
+            coalesce((select avg(a) from rush), 0),
+            coalesce((select var_samp(t) / nullif(avg(t),0) from rec), 1.0),
+            coalesce((select var_samp(a) / nullif(avg(a),0) from rush), 1.0),
+            coalesce((select avg(att) from pass), 0),
+            coalesce((select sum(comp)::double / nullif(sum(att),0) from pass), 0),
+            coalesce((select var_samp(att) / nullif(avg(att),0) from pass), 1.0),
+            coalesce((select sum(tds)::double / nullif(sum(att),0) from pass), 0)
+    """, [player_id, player_id, player_id]).fetchone()
+
+    games, tpg, cr, cpg, t_disp, c_disp, apg, comp_rate, a_disp, td_rate = row
+    if not games or games < min_games:
+        raise InsufficientHistory(
+            f"{player_id}: {games or 0} prior games, need {min_games}"
+        )
+
+    ypc = np.array([r[0] for r in con.execute(f"""
+        select yards_gained from read_parquet('{pbp_path}')
+        where receiver_player_id = ? and complete_pass = 1
+          and season_type = '{season_type}' {wk}
+    """, [player_id]).fetchall()], dtype=float)
+
+    ypcarry = np.array([r[0] for r in con.execute(f"""
+        select yards_gained from read_parquet('{pbp_path}')
+        where rusher_player_id = ? and season_type = '{season_type}'
+          and coalesce(qb_kneel, 0) = 0 {wk}
+    """, [player_id]).fetchall()], dtype=float)
+
+    ypcomp = np.array([r[0] for r in con.execute(f"""
+        select yards_gained from read_parquet('{pbp_path}')
+        where passer_player_id = ? and complete_pass = 1
+          and season_type = '{season_type}' {wk}
+    """, [player_id]).fetchall()], dtype=float)
+
+    return PlayerInputs(
+        player_id=player_id,
+        games=int(games),
+        targets_per_game=float(tpg),
+        catch_rate=float(cr),
+        carries_per_game=float(cpg),
+        yards_per_catch=ypc,
+        yards_per_carry=ypcarry,
+        # dispersion is var/mean; below 1 the negative binomial is undefined, and
+        # Poisson is the honest fallback rather than forcing overdispersion
+        target_dispersion=max(float(t_disp), 1.0),
+        carry_dispersion=max(float(c_disp), 1.0),
+        attempts_per_game=float(apg),
+        completion_rate=float(comp_rate),
+        yards_per_completion=ypcomp,
+        attempt_dispersion=max(float(a_disp), 1.0),
+        pass_td_rate=float(td_rate),
+    )

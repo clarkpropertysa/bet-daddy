@@ -1,8 +1,8 @@
 import { isStale, relativeAge } from "@/lib/format";
 
 /**
- * Section 12: if a pipeline job fails, the UI must show the data is stale rather
- * than silently serving yesterday's numbers. This renders on every data surface.
+ * Section 12: a failed job must surface as visibly stale rather than silently
+ * serving yesterday's numbers. Rendered on every data surface.
  */
 export function StaleBanner({
   lastRun,
@@ -15,16 +15,20 @@ export function StaleBanner({
 }) {
   if (!isStale(lastRun, maxMins)) {
     return (
-      <p className="text-xs text-zinc-500">
+      <div className="flex items-center gap-2 text-[11px] text-ink-3">
+        <span className="h-1.5 w-1.5 rounded-full bg-pos" aria-hidden="true" />
         {job} updated {relativeAge(lastRun)}
-      </p>
+      </div>
     );
   }
   return (
-    <div className="rounded border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-      <strong className="font-semibold">Stale data.</strong>{" "}
-      {job} last succeeded {relativeAge(lastRun)}
-      {lastRun ? "" : " (never run)"}. Prices and edges below may be out of date.
+    <div className="flex max-w-md items-start gap-2.5 rounded-md border border-warn/40 bg-warn/[0.07] px-3 py-2.5">
+      <span className="mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
+      <p className="text-[11px] leading-relaxed text-warn">
+        <strong className="font-semibold">Stale data.</strong> {job} last succeeded{" "}
+        {relativeAge(lastRun)}
+        {lastRun ? "" : " (never run)"}. Prices and edges below may be out of date.
+      </p>
     </div>
   );
 }

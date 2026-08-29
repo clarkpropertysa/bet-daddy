@@ -1,31 +1,76 @@
 @import "tailwindcss";
 
 /*
- * Dark, dense, information-first (Section 9). This tool is committed to a single
- * dark look rather than following the OS: the palette carries meaning here --
- * emerald for positive edge, amber for fees and staleness, red for negative --
- * and those readings must not shift with a system setting.
+ * Design tokens. Dark-committed by choice, not by OS preference: the palette carries
+ * meaning here (edge, fee, staleness) and those readings must not shift underneath a
+ * user's system setting.
  *
- * The scaffold's default `body { background: var(--background) }` is deliberately
- * removed: a bare element rule outranks Tailwind utility classes in the cascade, so
- * it silently overrode the bg-zinc-950 on <body> and rendered the whole app light.
+ * Chart colours are the validated dark-surface steps from the data-viz reference
+ * palette. Note the known constraint: --pos and --neg (aqua/red) sit at CVD ΔE 6.5
+ * for protanopia, which is legal ONLY with secondary encoding. Every edge value in
+ * this app therefore carries an explicit +/- sign and a directional glyph; colour is
+ * never the sole channel.
  */
 
 :root {
   color-scheme: dark;
+
+  --bg:            #0a0a0b;
+  --surface-1:     #111113;
+  --surface-2:     #17171a;
+  --surface-3:     #1e1e22;
+  --line:          #26262b;
+  --line-strong:   #34343b;
+
+  --ink:           #ececef;
+  --ink-2:         #a1a1aa;
+  --ink-3:         #6b6b76;
+
+  --pos:           #199e70;
+  --neg:           #e66767;
+  --warn:          #c98500;
+  --accent:        #3987e5;
 }
 
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-pos: var(--pos);
+  --color-neg: var(--neg);
+  --color-warn: var(--warn);
+  --color-accent: var(--accent);
 }
 
-html,
-body {
+html, body {
   font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
 }
 
-/* Tabular figures keep price and edge columns from jittering as values change. */
-.font-mono {
+/* Every figure in a data column is tabular: without this, columns jitter as digits
+   change width and the eye loses the scan line. */
+.tnum, .font-mono, table td, table th {
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
+
+/* Dense-table scan aid: a hairline that does not compete with the data. */
+.divide-line > * + * { border-top: 1px solid var(--line); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--surface-1); }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #43434c; }
+
+/* Recharts paints an SVG focus outline on every hover; suppress it, keep keyboard. */
+.recharts-wrapper:focus { outline: none; }

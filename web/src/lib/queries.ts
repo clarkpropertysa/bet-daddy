@@ -18,6 +18,8 @@ export type BoardRow = {
   sampleN: number;
   runTs: Date;
   reason: unknown;
+  implausible: boolean;
+  modelVersion: string;
 };
 
 /** Latest signal per market, newest first. One row per market, not per run. */
@@ -35,7 +37,9 @@ export async function getBoard(limit = 200): Promise<BoardRow[]> {
       p.position          as position,
       t.abbrev            as team,
       pr."marketType"     as "marketType",
-      ms.strike           as strike,
+      -- MarketSnapshot is not mirrored into Postgres (the archive is Parquet), so
+      -- the strike is parsed off the ticker: ...-SFBPURDY13-350 -> 350
+      nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
       'yes'               as side,
       l."modelProb"::float8   as "modelProb",
       l."marketProb"::float8  as "marketProb",
@@ -45,16 +49,13 @@ export async function getBoard(limit = 200): Promise<BoardRow[]> {
       l.tier::text        as tier,
       l."sampleN"         as "sampleN",
       l."runTs"           as "runTs",
-      l.reason            as reason
+      l.reason            as reason,
+      coalesce((l.reason->>'implausible')::boolean, false) as implausible,
+      l."modelVersion"    as "modelVersion"
     from latest l
     join "Projection" pr on pr.id = l."projectionId"
     left join "Player" p on p.id = pr."playerId"
     left join "Team" t on t.id = p."teamId"
-    left join lateral (
-      select strike from "MarketSnapshot"
-      where "marketTicker" = l."marketTicker"
-      order by ts desc limit 1
-    ) ms on true
     order by l."edgeCentsNet" desc
     limit ${limit}
   `;
