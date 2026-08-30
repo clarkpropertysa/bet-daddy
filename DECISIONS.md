@@ -708,3 +708,36 @@ later data.
 The value shows most clearly on a bad signal: a smoke-run row now says "a 46.4 point
 disagreement" and "the baseline rests on only 6 games" in plain language, which makes
 the model's weakness legible without reading the chart.
+
+---
+
+### D35. The Slate, and using nflverse's own columns
+
+The Slate (Section 9.1) is the pre-prop view: who plays, on what rest, in what
+conditions, and how much scoring the market expects. It now renders the next week's
+games grouped by day, each with the market total and spread, venue and roof, rest
+flags, and a live signal count — plus top edges, injury impact and pipeline health.
+
+**Two corrections to earlier work, both from reading the schedule columns properly.**
+
+1. **Neutral sites.** I inferred them by comparing each game's stadium to the team's
+   most-frequent stadium. That flagged **55 of 272** games in 2026, because stadiums
+   get renamed: Seattle's all-time leader is "CenturyLink Field" (81 games) against
+   Lumen Field's 58, so every Seattle home game read as neutral. Restricting to recent
+   seasons did not fix it either. nflverse carries a `location` column with the answer
+   — **8 games, all genuinely international**. I built a heuristic where the data
+   already had the fact.
+
+2. **Fields I was ignoring.** The schedule also carries `total_line`, `spread_line`,
+   `temp`, `wind`, `div_game`, starting QBs, and `home_rest`/`away_rest`. Section 5.5
+   calls projected total and spread the biggest drivers of prop volume after injuries,
+   and they were sitting in a file already on disk.
+
+**A validation worth recording:** my independently-derived `days_rest` agrees with
+nflverse's own `home_rest`/`away_rest` on **all 538 rows** of the 2025 season.
+
+Wind is flagged at **15mph**, per Section 5.5 — wind is the weather variable that
+moves passing and kicking; temperature mostly is not.
+
+Also: adding a column via raw SQL from a pipeline job put Prisma's migration history
+into drift. Schema changes go through Prisma, always.

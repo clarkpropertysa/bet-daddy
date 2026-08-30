@@ -1,54 +1,103 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/PageHeader";
+import { SlateGames, TopEdges } from "@/components/SlateBoard";
 import { StaleBanner } from "@/components/StaleBanner";
-import { getJobHealth } from "@/lib/queries";
+import { getJobHealth, getNextSlate, getTopEdges } from "@/lib/queries";
+import { relativeAge } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const KICKOFF = new Date("2026-09-09T20:20:00-07:00");
-
+/**
+ * Section 9.1 — the at-a-glance dashboard. Everything that changes what is worth
+ * looking at today, before any individual prop: who plays, on what rest, in what
+ * conditions, with how much the market expects to happen.
+ */
 export default async function SlatePage() {
-  const health = await getJobHealth();
-  const days = Math.ceil((KICKOFF.getTime() - Date.now()) / 86_400_000);
+  const [games, edges, health] = await Promise.all([
+    getNextSlate(), getTopEdges(), getJobHealth(),
+  ]);
+
+  const first = games[0]?.gameDate;
+  const daysOut = first
+    ? Math.ceil((new Date(first).getTime() - Date.now()) / 86_400_000)
+    : null;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <p className="mt-0.5 text-xs text-ink-2">
-          2026 season opens Wednesday 9 September — NE at SEA, Lumen Field.
-          {days > 0 && ` ${days} day${days === 1 ? "" : "s"} out.`}
-        </p>
-      </div>
-
-      <StaleBanner
-        lastRun={health.find((h) => h.job === "kalshi_archiver")?.startedAt ?? null}
-        job="Market archiver"
+    <div>
+      <PageHeader
+        index="00"
+        title="Slate"
+        sub="What is worth looking at, before any individual prop: who plays, on what rest, in what conditions, and how much scoring the market expects."
+        right={
+          <StaleBanner
+            lastRun={health.find((h) => h.job === "kalshi_archiver")?.startedAt ?? null}
+            job="Archiver"
+          />
+        }
       />
 
-      <section className="rounded border border-line bg-card p-4">
-        <h2 className="display text-[13px] text-ink">Pipeline health</h2>
-        {health.length === 0 ? (
-          <p className="mt-2 text-xs text-ink-2">
-            No pipeline runs recorded yet. The archiver writes Parquet and uploads to
-            blob storage; run records land here once the DB writer is wired.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-1 text-xs">
-            {health.map((h) => (
-              <li key={h.job} className="tnum flex justify-between gap-4 text-ink-2">
-                <span>{h.job}</span>
-                <span>{h.rowsWritten} rows</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+        <div>
+          <div className="mb-3 flex items-baseline gap-3">
+            <h2 className="display text-[14px] text-ink">
+              {games.length ? `Week ${games[0].week}` : "Next slate"}
+            </h2>
+            {daysOut !== null && (
+              <span className="eyebrow">
+                {daysOut > 0 ? `${daysOut} days out` : "in progress"} ·{" "}
+                {games.length} games
+              </span>
+            )}
+          </div>
+          {games.length === 0 ? (
+            <p className="text-[12px] text-ink-2">
+              No scheduled games found. Run pipeline.ingest.sync_reference.
+            </p>
+          ) : (
+            <SlateGames games={games} />
+          )}
+        </div>
 
-      <Link
-        href="/board"
-        className="display inline-block rounded bg-steel px-4 py-2 text-[13px] text-white transition-colors hover:bg-steel-700"
-      >
-        Open Prop Board →
-      </Link>
+        <aside className="space-y-5">
+          <section className="rounded border border-line bg-card p-4">
+            <h2 className="display mb-2 text-[13px] text-ink">Top edges</h2>
+            <TopEdges edges={edges} />
+          </section>
+
+          <section className="rounded border border-line bg-card p-4">
+            <h2 className="display mb-2 text-[13px] text-ink">Injury impact</h2>
+            <p className="text-[12px] leading-relaxed text-ink-2">
+              Nothing yet — official injury reports publish once the season starts.
+              When they do, a starter ruled out promotes his backup here and on the
+              Players page, with the freed-up usage attributed.
+            </p>
+          </section>
+
+          <section className="rounded border border-line bg-card p-4">
+            <h2 className="display mb-2 text-[13px] text-ink">Pipeline</h2>
+            {health.length === 0 ? (
+              <p className="text-[12px] text-ink-2">No runs recorded.</p>
+            ) : (
+              <ul className="space-y-1">
+                {health.map((h) => (
+                  <li key={h.job} className="flex justify-between gap-3 text-[11px]">
+                    <span className="truncate text-ink-2">{h.job}</span>
+                    <span className="tnum shrink-0 text-ink-3">
+                      {relativeAge(h.startedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link
+              href="/board"
+              className="display mt-3 inline-block rounded bg-steel px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-steel-700"
+            >
+              Open Prop Board
+            </Link>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }

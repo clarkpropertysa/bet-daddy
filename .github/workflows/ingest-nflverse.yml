@@ -25,5 +25,13 @@ jobs:
         run: uv run python -m pipeline.ingest.nflverse --seasons 2024,2025,2026
 
       # Fails the run on genuine schema drift, not on a season that has not started.
+      - name: Sync reference, depth and schedule context into Neon
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          uv run python -m pipeline.ingest.sync_reference --season 2026
+          uv run python -m pipeline.ingest.depth --season 2026
+          uv run python -m pipeline.ingest.sync_context --season 2026
+
       - name: Verify known-correct values
         run: uv run python -m pytest tests/ -q

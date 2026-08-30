@@ -113,6 +113,15 @@ model Game {
   roof        String?
   surface     String?
   isNeutral   Boolean  @default(false)
+  /// Market-published game total and spread. Section 5.5: these drive prop volume
+  /// more than anything except injuries.
+  totalLine   Float?
+  spreadLine  Float?
+  tempF       Float?
+  windMph     Float?
+  homeQb      String?
+  awayQb      String?
+  divGame     Boolean  @default(false)
   contexts    GameContext[]
   source      String
   ingestedAt  DateTime @default(now())

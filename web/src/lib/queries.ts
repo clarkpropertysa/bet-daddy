@@ -172,3 +172,90 @@ export async function getParlayLegs(limit = 300) {
     limit ${limit}
   `;
 }
+
+
+export type SlateGame = {
+  gameId: string;
+  gameDate: Date;
+  kickoff: string | null;
+  week: number | null;
+  homeTeam: string;
+  awayTeam: string;
+  venue: string | null;
+  roof: string | null;
+  isNeutral: boolean;
+  divGame: boolean;
+  totalLine: number | null;
+  spreadLine: number | null;
+  windMph: number | null;
+  tempF: number | null;
+  homeRest: number | null;
+  awayRest: number | null;
+  homeShortWeek: boolean;
+  awayShortWeek: boolean;
+  homePostBye: boolean;
+  awayPostBye: boolean;
+  signalCount: number;
+};
+
+/**
+ * The next slate: the earliestunplayed game date and everything sharing its week.
+ * Rest, lines and venue come from GameContext/Game, both synced from nflverse.
+ */
+export async function getNextSlate(): Promise<SlateGame[]> {
+  return prisma.$queryRaw<SlateGame[]>`
+    with next_week as (
+      select season, week from "Game"
+      where "gameDate" >= current_date - interval '1 day'
+      order by "gameDate" limit 1
+    )
+    select
+      g.id as "gameId", g."gameDate", g."kickoffUtc"::text as kickoff, g.week,
+      ht.abbrev as "homeTeam", at.abbrev as "awayTeam",
+      g.venue, g.roof, g."isNeutral", g."divGame",
+      g."totalLine", g."spreadLine", g."windMph", g."tempF",
+      hc."daysRest" as "homeRest", ac."daysRest" as "awayRest",
+      coalesce(hc."isShortWeek", false) as "homeShortWeek",
+      coalesce(ac."isShortWeek", false) as "awayShortWeek",
+      coalesce(hc."isPostBye", false) as "homePostBye",
+      coalesce(ac."isPostBye", false) as "awayPostBye",
+      (select count(*) from "Signal" s
+        join "Projection" p on p.id = s."projectionId"
+        where p."gameId" = g.id)::int as "signalCount"
+    -- CROSS JOIN, not a comma: with "Game" g, next_week nw the following JOINs
+    -- bind to next_week rather than to g, and the query fails to resolve g.
+    from "Game" g
+    join "Team" ht on ht.id = g."homeTeamId"
+    join "Team" at on at.id = g."awayTeamId"
+    left join "GameContext" hc on hc."gameId" = g.id and hc."teamId" = g."homeTeamId"
+    left join "GameContext" ac on ac."gameId" = g.id and ac."teamId" = g."awayTeamId"
+    cross join next_week nw
+    where g.season = nw.season and g.week = nw.week
+    order by g."gameDate", g.id
+  `;
+}
+
+/** Highest-edge validated signals, for the slate's headline list. */
+export async function getTopEdges(limit = 6) {
+  return prisma.$queryRaw<
+    { player: string; marketType: string; strike: number | null; side: string;
+      edgeCentsNet: number; tier: string; headshotUrl: string | null }[]
+  >`
+    with latest as (
+      select distinct on (s."marketTicker") s.*
+      from "Signal" s order by s."marketTicker", s."runTs" desc
+    )
+    select coalesce(p."fullName",'unresolved') as player,
+           pr."marketType" as "marketType",
+           nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
+           l.side, l."edgeCentsNet"::float8 as "edgeCentsNet",
+           l.tier::text as tier, p."headshotUrl" as "headshotUrl"
+    from latest l
+    join "Projection" pr on pr.id = l."projectionId"
+    left join "Player" p on p.id = pr."playerId"
+    where coalesce((l.reason->>'implausible')::boolean,false) = false
+      and l."edgeCentsNet" > 0
+    order by l."edgeCentsNet" desc
+    limit ${limit}
+  `;
+}
