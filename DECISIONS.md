@@ -1306,3 +1306,44 @@ was not an unlucky typo — it is the default outcome of a normal workflow. The 
 now merged explicitly, with empty values treated as "no opinion" rather than as the
 empty string, and the real process environment still winning over both so CI secrets
 are never overwritten by a checked-out file.
+
+---
+
+## Getting it deployed: four blockers, none of them the app
+
+**2026-08-30.** The project had **zero deployments** — it had never successfully built
+once. Four separate causes, found one at a time because each hid the next.
+
+**1. Commit author email.** Every commit was authored `colinsmacbook@Colins-Air.lan`,
+a hostname-derived address git invents when `user.email` is unset. Vercel blocks
+deployments whose author it cannot tie to an account, so builds came back `BLOCKED`
+instantly with no build log at all — indistinguishable from a plan or quota problem.
+
+**2. Framework detection.** The repo root holds `pyproject.toml`, so Vercel decided
+this was a Python project and looked for a WSGI entrypoint. Setting `framework` in
+`vercel.json` got past detection but then failed on "No Next.js version detected",
+because detection reads the ROOT `package.json` and `next` lives in `web/`.
+
+**3. The Prisma schema lived above the app that owns it.** This is what made Root
+Directory = `web` impossible: `web/package.json` ran
+`prisma generate --schema=../prisma/schema.prisma`, reaching outside the deploy root.
+Nothing in `pipeline/` reads the schema — the Python side talks to Postgres in raw SQL
+through psycopg — so the schema was simply in the wrong place. Moved to `web/prisma/`,
+which makes `web/` self-contained and lets the app deploy as its own root.
+
+**4. Prisma cannot express a fallback env var.** The Neon Vercel integration does not
+publish `DATABASE_URL`. It publishes `bet_daddy_archive_DATABASE_URL` (pooled) and
+`..._DATABASE_URL_UNPOOLED` (direct), and `env()` in a Prisma schema names exactly one
+variable. So the first genuinely successful build produced a reachable app where every
+request failed on "Environment variable not found: DATABASE_URL".
+
+Bridged in `web/src/lib/db.ts` before the client is constructed, rather than by copying
+the connection string into a second Vercel variable. A duplicated secret is one the
+integration cannot rotate, and it would go stale silently the first time Neon cycles
+the password. The integration remains the single source of truth; the bridge only
+gives its value the name Prisma expects. A local `DATABASE_URL` still wins, so
+pointing a developer at their own branch keeps working.
+
+Note the shape shared with the `.env.local` bug fixed the same day: **a value that is
+present under one name and absent under another fails silently, because "unset" and
+"set to nothing" are indistinguishable to code that only checks presence.**
