@@ -1,6 +1,6 @@
 "use client";
 
-import { labelFor } from "@/lib/markets";
+import { gameFromTicker, labelFor } from "@/lib/markets";
 
 /**
  * The prediction as a sentence, not a row of fields.
@@ -10,22 +10,42 @@ import { labelFor } from "@/lib/markets";
  * product; the numbers are its support.
  */
 export function Prediction({
-  side, strike, marketType,
-}: { side: string | undefined; strike: number | null; marketType: string }) {
+  side, strike, marketType, marketTicker,
+}: {
+  side: string | undefined;
+  strike: number | null;
+  marketType: string;
+  marketTicker?: string;
+}) {
+  const game = marketTicker ? gameFromTicker(marketTicker) : null;
   // Defaults to the over: compute_edge only records "no" when it picked that side,
   // so an absent value means yes.
   const over = (side ?? "yes") === "yes";
   return (
-    <span className="flex items-baseline gap-1.5">
-      <span
-        className={`display rounded-[3px] px-1.5 py-[3px] text-[11px] tracking-[0.08em] ${
-          over ? "bg-steel-900 text-white" : "bg-steel-200 text-steel-900"
-        }`}
-      >
-        {over ? "over" : "under"}
+    <span className="block">
+      <span className="flex items-baseline gap-1.5">
+        <span
+          className={`display rounded-[3px] px-1.5 py-[3px] text-[11px] tracking-[0.08em] ${
+            over ? "bg-steel-900 text-white" : "bg-steel-200 text-steel-900"
+          }`}
+        >
+          {over ? "over" : "under"}
+        </span>
+        <span className="tnum text-[15px] font-semibold text-ink">{strike ?? "—"}</span>
+        <span className="text-[12px] text-ink-2">{labelFor(marketType).toLowerCase()}</span>
       </span>
-      <span className="tnum text-[15px] font-semibold text-ink">{strike ?? "—"}</span>
-      <span className="text-[12px] text-ink-2">{labelFor(marketType).toLowerCase()}</span>
+      {/* The game the line belongs to. Without it a preseason 50-yard line reads as
+          a broken regular-season one. */}
+      {game && (
+        <span className="mt-1 flex items-center gap-1.5">
+          <span className="text-[10px] text-ink-3">{game.label}</span>
+          {game.preseason && (
+            <span className="rounded-[2px] bg-warn/15 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-warn">
+              preseason
+            </span>
+          )}
+        </span>
+      )}
     </span>
   );
 }

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
@@ -104,6 +105,47 @@ def _entry_prices(archive_glob: str, mins_before_close: int) -> list[dict]:
 PRESEASON_MONTHS = ("AUG", "JUL")
 
 
+# Kalshi's own team codes, used to split an event ticker. A midpoint split is wrong
+# whenever the two codes are different lengths: ARILV becomes AR/ILV rather than
+# ARI/LV. Same failure as splitting SFBPURDY13 into SFB+PURDY.
+_TEAM_CODES = {
+    "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB","HOU",
+    "IND","JAX","KC","LAC","LAR","LV","MIA","MIN","NE","NO","NYG","NYJ","PHI","PIT",
+    "SEA","SF","TB","TEN","WAS","JAC","LA","WSH",
+}
+
+
+def _split_matchup(teams: str) -> tuple[str, str] | None:
+    """Split a concatenated matchup by anchoring on real team codes, longest first."""
+    for away in sorted(_TEAM_CODES, key=len, reverse=True):
+        if teams.startswith(away):
+            home = teams[len(away):]
+            if home in _TEAM_CODES:
+                return away, home
+    return None
+
+
+def _game_label(market_ticker: str) -> str | None:
+    """26AUG15CARBUF -> "CAR at BUF, Aug 15".
+
+    A strike is meaningless without the game it belongs to: 50 passing yards is
+    absurd in September and routine in a preseason game where a starter plays one
+    series.
+    """
+    parts = market_ticker.split("-")
+    if len(parts) < 2:
+        return None
+    m = re.match(r"^\d{2}([A-Z]{3})(\d{2})([A-Z]{4,8})$", parts[1])
+    if not m:
+        return None
+    mon, day, teams = m.groups()
+    split = _split_matchup(teams)
+    if not split:
+        return None
+    away, home = split
+    return f"{away} at {home}, {mon.title()} {int(day)}"
+
+
 def _is_preseason(market_ticker: str) -> bool:
     parts = market_ticker.split("-")
     if len(parts) < 2:
@@ -146,6 +188,10 @@ def run(
         except Exception:
             grades = None
     xw = build_crosswalk([m["market_ticker"] for m in markets], roster)
+    # UNRESOLVED keys carry gsis_id = None and are excluded here. FALLBACK matches
+    # (jersey ignored) resolve but are less certain -- a shared surname and initial
+    # on one roster would produce the wrong player -- so the confidence travels with
+    # the row and is stated in the rationale rather than silently equated to EXACT.
     by_key = {
         r["raw_key"]: r for r in xw.to_pylist() if r["gsis_id"] is not None
     }
@@ -169,6 +215,8 @@ def run(
             xr = by_key.get(parts[2])
             if not xr:
                 skip("unresolved_player"); continue
+            if xr.get("method") == "FALLBACK":
+                skip("matched_by_fallback")   # counted, not refused
 
             model = MARKET_MODEL.get(m["market_type"])
             if not model:
@@ -276,6 +324,7 @@ def run(
                 opponent = tail.replace(team_code, "") or None
 
             promoted_for = depth.get(xr["gsis_id"]).promoted_for if depth else None
+            game_label = _game_label(m["market_ticker"])
             pctx = None
             try:
                 pctx = load_context(pbp_path, xr["gsis_id"], team_code,
@@ -319,6 +368,9 @@ def run(
                     position=xr.get("position"),
                     ctx=pctx,
                     promoted_for=promoted_for,
+                    match_method=xr.get("method"),
+                    game_label=game_label,
+                    is_preseason=_is_preseason(m["market_ticker"]),
                 ),
             }
 

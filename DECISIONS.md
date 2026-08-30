@@ -1020,3 +1020,36 @@ it**.
 
 The raw figures remain in the Why panel, where someone checking the arithmetic will
 look for them.
+
+---
+
+### D47. Crosswalk audit, and the line that looked wrong
+
+**The crosswalk audit came back mostly clean.** The projection job DOES exclude
+`UNRESOLVED` keys — they carry `gsis_id = None` and the lookup filters on it. But
+**nothing read `confidence`**: a `FALLBACK` match at 0.85 was projected identically to
+an `EXACT` at 1.00.
+
+FALLBACK means the market's key did not match a roster jersey, so identity rests on
+team + surname + first initial. A shared surname on one roster resolves to the wrong
+player. One live case (`KCJFIELDS6` → Justin Fields). Now counted in the skip report
+and stated in the rationale as a caveat rather than silently equated to an exact match.
+
+**"Josh Allen over 50 passing yards" was correct, and the board was wrong to show it
+without context.** His only archived market is `26AUG15CARBUF` — a preseason game
+where a starter plays one series.
+
+| | markets | min | median | max |
+|---|---|---|---|---|
+| regular season | 35 | 150 | 250 | 400 |
+| preseason | 255 | 25 | 100 | 250 |
+
+The strike parsing was fine. What was missing is that **a line is unreadable without
+its game**. Every row now carries "ARI at LV, Aug 13" and a PRESEASON badge, and the
+rationale leads with why the number is low.
+
+**A bug caught in my own new parser before it shipped.** Splitting the matchup at the
+string midpoint turns `ARILV` into `AR`/`ILV`. This is the third instance of the same
+mistake — `SFBPURDY13` → `SFB`+`PURDY` was the first — so the split is anchored on the
+real team-code set, longest first, in both the Python and TypeScript implementations,
+with tests naming the failing case.

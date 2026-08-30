@@ -183,7 +183,12 @@ export function PropBoard({ rows }: { rows: Row[] }) {
                   </span>
                 </Td>
                 <Td>
-                  <Prediction side={r.side} strike={r.strike} marketType={r.marketType} />
+                  <Prediction
+                    side={r.side}
+                    strike={r.strike}
+                    marketType={r.marketType}
+                    marketTicker={r.marketTicker}
+                  />
                 </Td>
                 <Td>
                   <ProbabilityGap modelProb={r.modelProb} marketProb={r.marketProb} />

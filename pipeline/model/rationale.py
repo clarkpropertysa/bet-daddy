@@ -56,8 +56,31 @@ def build_rationale(
     position: str | None = None,
     ctx: Any = None,
     promoted_for: str | None = None,
+    match_method: str | None = None,
+    game_label: str | None = None,
+    is_preseason: bool = False,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+
+    # A line is meaningless without its game. 50 passing yards is absurd in week 3
+    # and routine in a preseason game where a starter plays one series.
+    if is_preseason:
+        out.append({
+            "kind": "caveat",
+            "claim": f"This is a preseason game{f' ({game_label})' if game_label else ''}.",
+            "evidence": "Starters play a series or two, which is why the line is so "
+                        "low. Season usage does not predict preseason snaps, so this "
+                        "projection is not trustworthy.",
+        })
+
+    if match_method == "FALLBACK":
+        out.append({
+            "kind": "caveat",
+            "claim": "Player identity was matched without the jersey number.",
+            "evidence": "The market's key did not match a roster jersey, so the match "
+                        "rests on team, surname and first initial. A shared surname on "
+                        "one roster would resolve to the wrong player.",
+        })
 
     # Leads the list when it applies: a promoted backup's baseline describes his
     # role BEFORE the promotion, which is the single most important caveat on the

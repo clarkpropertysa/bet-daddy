@@ -59,3 +59,42 @@ export function gameWeek(gameId: string): string | null {
   const parts = gameId.split("_");
   return parts.length >= 2 ? `Week ${Number(parts[1])}` : null;
 }
+
+
+const TEAM_CODES = new Set([
+  "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB","HOU",
+  "IND","JAX","KC","LAC","LAR","LV","MIA","MIN","NE","NO","NYG","NYJ","PHI","PIT",
+  "SEA","SF","TB","TEN","WAS","JAC","LA","WSH",
+]);
+
+/**
+ * "KXNFLPASSYDS-26AUG15CARBUF-..." -> { label: "CAR at BUF, Aug 15", preseason: true }
+ *
+ * A strike is unreadable without its game. "Over 50 passing yards" is absurd in
+ * week 3 and routine in a preseason game where a starter plays one series.
+ * The matchup is split by anchoring on real team codes: a midpoint split turns
+ * ARILV into AR/ILV.
+ */
+export function gameFromTicker(
+  ticker: string,
+): { label: string; preseason: boolean } | null {
+  const parts = ticker.split("-");
+  if (parts.length < 2) return null;
+  const m = /^\d{2}([A-Z]{3})(\d{2})([A-Z]{4,8})$/.exec(parts[1]);
+  if (!m) return null;
+  const [, mon, day, teams] = m;
+  let away: string | null = null;
+  for (const code of [...TEAM_CODES].sort((a, b) => b.length - a.length)) {
+    if (teams.startsWith(code) && TEAM_CODES.has(teams.slice(code.length))) {
+      away = code;
+      break;
+    }
+  }
+  if (!away) return null;
+  const home = teams.slice(away.length);
+  const month = mon.charAt(0) + mon.slice(1).toLowerCase();
+  return {
+    label: `${away} at ${home}, ${month} ${Number(day)}`,
+    preseason: mon === "AUG" || mon === "JUL",
+  };
+}
