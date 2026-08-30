@@ -57,8 +57,8 @@ export function DistributionChart({
         <AreaChart data={data} margin={{ top: 14, right: 10, bottom: 2, left: 0 }}>
           <defs>
             <linearGradient id="distFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
+              <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
             </linearGradient>
           </defs>
           <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" vertical={false} />
@@ -68,7 +68,7 @@ export function DistributionChart({
             domain={[lo, hi]}
             tick={{ fill: "var(--ink-3)", fontSize: 10 }}
             tickLine={false}
-            axisLine={{ stroke: "var(--line)" }}
+            axisLine={{ stroke: "var(--line-2)" }}
           />
           <YAxis
             dataKey="cum"
@@ -81,10 +81,10 @@ export function DistributionChart({
             ticks={[0, 25, 50, 75, 100]}
           />
           <Tooltip
-            cursor={{ stroke: "var(--line-strong)", strokeWidth: 1 }}
+            cursor={{ stroke: "var(--steel-400)", strokeWidth: 1 }}
             contentStyle={{
-              background: "var(--surface-3)",
-              border: "1px solid var(--line-strong)",
+              background: "var(--card)",
+              border: "1px solid var(--line-2)",
               borderRadius: 6,
               fontSize: 11,
               color: "var(--ink)",
@@ -99,10 +99,10 @@ export function DistributionChart({
             isAnimationActive={false}
             type="monotone"
             dataKey="cum"
-            stroke="var(--accent)"
+            stroke="var(--chart-1)"
             strokeWidth={2}
             fill="url(#distFill)"
-            dot={{ r: 2.5, fill: "var(--accent)", stroke: "var(--surface-1)", strokeWidth: 2 }}
+            dot={{ r: 2.5, fill: "var(--chart-1)", stroke: "var(--card)", strokeWidth: 2 }}
             activeDot={{ r: 4 }}
           />
           {mean !== undefined && (

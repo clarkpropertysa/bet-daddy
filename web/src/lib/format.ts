@@ -28,11 +28,10 @@ export function edgeGlyph(v: unknown): string {
 }
 
 export function edgeTone(v: unknown): string {
-  if (v === null || v === undefined) return "text-zinc-500";
+  if (v === null || v === undefined) return "text-ink-3";
   const n = Number(v);
-  if (n > 2) return "text-emerald-400";
-  if (n > 0) return "text-emerald-500/70";
-  return "text-zinc-500";
+  if (n > 0) return "text-pos";
+  return "text-neg";
 }
 
 /** Staleness is a first-class UI concern (Section 12): never serve stale silently. */

@@ -532,3 +532,60 @@ pixel dimensions requested, so the Next optimiser would add a second hop for not
 Two fallbacks, because a missing photo must never look like a data error: ~2.4% of
 rostered players have no headshot, and the CDN occasionally 404s an id the roster
 still carries. Both render initials.
+
+---
+
+### D28. Brand system applied — "one steel voice on paper"
+
+From the Bet Daddy brand sheet (v1, Aug 2026). Canonical values:
+
+| token | hex | role |
+|---|---|---|
+| STEEL / ACCENT | `#5980A6` | odds, actions, the mark |
+| STEEL 900 | `#1D2D3D` | action panels, app icon, fields |
+| PAPER | `#F2F2F3` | the default ground |
+| INK | `#1D1F20` | all body copy |
+
+Plus the steel ramp 100→900, sampled directly from the sheet's swatches rather than
+eyeballed. **The app inverted from dark to light**: paper is the specified ground.
+
+Structural rule carried over from the sheet's app mock ("odds board on paper, bet slip
+on steel"): data surfaces are paper/white cards, action surfaces are steel 900. The
+Why panel is therefore a steel panel — with the distribution chart on a paper card
+inside it, because data belongs on paper.
+
+Type: condensed grotesque (Oswald) for the wordmark, section numbers and CTAs; a
+neutral grotesque (Inter) for body. The signature numeric motif is the outlined steel
+box (`.odds-box`) — prices, strikes and edges never render as bare text.
+
+The Odds Crown mark is rebuilt as SVG: five bars reading as a crown on a base rule,
+and per the sheet the rule is dropped below 20px.
+
+**Two deliberate departures, both documented:**
+
+1. **Polarity.** The brand is monochrome, but edge needs direction. Steel — the
+   brand's own "actions" colour — carries positive; a warm counterpole `#A6553F`
+   carries negative. Validated on paper: CVD ΔE 14.8 deutan, 18.4 normal.
+2. **Chart marks.** Brand steel sits at chroma 0.073 and *reads gray as a chart
+   series*. Chart marks use a chroma-lifted `#3D7BB5` / `#B04A2F` pair (validated:
+   CVD ΔE 19.9, normal 24.2); the UI keeps the brand value. This is also why charts
+   live on paper rather than on the steel panel — steel-on-steel fails the chroma
+   floor in every step tested.
+
+---
+
+### D29. The signal SIDE was never stored, and the UI was lying
+
+`compute_edge` evaluates both sides and keeps the better one, so `modelProb` is the
+probability of the CHOSEN side — not always P(over). The side was never persisted.
+
+The Why panel therefore showed "Model probability 94.1%" beside a distribution where
+the strike sat above p90 — i.e. P(over) ≈ 5.9%. Both numbers were right; the label
+was wrong, and the contradiction was invisible unless you read the chart carefully.
+
+**23% of signals (26 of 111) were NO-side and mislabelled this way.** A user acting on
+the board would have taken the opposite bet.
+
+`Signal.side` is now a stored column, rendered as a badge on every board row and as
+over/under in the panel, with P(over) shown alongside on NO rows so the chart and the
+arithmetic agree.

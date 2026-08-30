@@ -34,7 +34,7 @@ export function Sparkline({
         points={pts.join(" ")}
         fill="none"
         strokeWidth={1.5}
-        stroke={rising ? "var(--pos)" : "var(--neg)"}
+        stroke={rising ? "var(--chart-1)" : "var(--chart-2)"}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -42,7 +42,7 @@ export function Sparkline({
         cx={(values.length - 1) * step}
         cy={height - ((values[values.length - 1] - lo) / span) * (height - 3) - 1.5}
         r={2}
-        fill={rising ? "var(--pos)" : "var(--neg)"}
+        fill={rising ? "var(--chart-1)" : "var(--chart-2)"}
       />
     </svg>
   );

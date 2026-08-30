@@ -42,7 +42,7 @@ export async function getBoard(limit = 200): Promise<BoardRow[]> {
       -- MarketSnapshot is not mirrored into Postgres (the archive is Parquet), so
       -- the strike is parsed off the ticker: ...-SFBPURDY13-350 -> 350
       nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
-      'yes'               as side,
+      l.side              as side,
       l."modelProb"::float8   as "modelProb",
       l."marketProb"::float8  as "marketProb",
       l."feeCents"::float8    as "feeCents",

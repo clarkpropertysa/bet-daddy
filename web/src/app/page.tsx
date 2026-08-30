@@ -13,8 +13,7 @@ export default async function SlatePage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-100">Slate</h1>
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="mt-0.5 text-xs text-ink-2">
           2026 season opens Wednesday 9 September — NE at SEA, Lumen Field.
           {days > 0 && ` ${days} day${days === 1 ? "" : "s"} out.`}
         </p>
@@ -25,17 +24,17 @@ export default async function SlatePage() {
         job="Market archiver"
       />
 
-      <section className="rounded border border-zinc-800 bg-zinc-900/40 p-4">
-        <h2 className="text-sm font-medium text-zinc-200">Pipeline health</h2>
+      <section className="rounded border border-line bg-card p-4">
+        <h2 className="display text-[13px] text-ink">Pipeline health</h2>
         {health.length === 0 ? (
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-ink-2">
             No pipeline runs recorded yet. The archiver writes Parquet and uploads to
             blob storage; run records land here once the DB writer is wired.
           </p>
         ) : (
           <ul className="mt-2 space-y-1 text-xs">
             {health.map((h) => (
-              <li key={h.job} className="flex justify-between gap-4 font-mono text-zinc-400">
+              <li key={h.job} className="tnum flex justify-between gap-4 text-ink-2">
                 <span>{h.job}</span>
                 <span>{h.rowsWritten} rows</span>
               </li>
@@ -46,7 +45,7 @@ export default async function SlatePage() {
 
       <Link
         href="/board"
-        className="inline-block rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900"
+        className="display inline-block rounded bg-steel px-4 py-2 text-[13px] text-white transition-colors hover:bg-steel-700"
       >
         Open Prop Board →
       </Link>

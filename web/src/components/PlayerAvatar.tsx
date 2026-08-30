@@ -24,7 +24,7 @@ export function PlayerAvatar({
 
   return (
     <span
-      className="relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-surface-3 align-middle"
+      className="relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-line-2 bg-steel-100 align-middle"
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
@@ -43,7 +43,7 @@ export function PlayerAvatar({
         />
       ) : (
         <span
-          className="font-medium text-ink-3"
+          className="display text-steel-700"
           style={{ fontSize: Math.max(9, size * 0.36) }}
         >
           {initials(name)}

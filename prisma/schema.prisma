@@ -206,6 +206,10 @@ model Signal {
   projection    Projection @relation(fields: [projectionId], references: [id])
   marketTicker  String
   runTs         DateTime
+  /// "yes" or "no". compute_edge evaluates BOTH sides and keeps the better one, so
+  /// modelProb is the probability of THIS side, not always P(over). Without this
+  /// column the board cannot say which bet it is recommending.
+  side          String   @default("yes")
   modelProb     Decimal  @db.Decimal(6, 4)
   marketProb    Decimal  @db.Decimal(6, 4)
   /// stored, not recomputed at read time, so the Why panel shows what was actually used

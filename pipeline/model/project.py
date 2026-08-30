@@ -201,6 +201,7 @@ def run(
                 "explain": out["explain"],
                 "percentiles": out["percentiles"],
                 "mean": out["mean"],
+                "p_over": round(p_over, 4),
                 "divergence": round(divergence, 4),
                 "implausible": implausible,
                 "model_version": model_version,
@@ -228,13 +229,14 @@ def run(
                 cur.execute(
                     """
                     insert into "Signal"
-                      (id, "projectionId", "marketTicker", "runTs", "modelProb",
+                      (id, "projectionId", "marketTicker", "runTs", side, "modelProb",
                        "marketProb", "feeCents", "edgeCentsNet", "kellyFraction",
                        tier, "sampleN", reason, "modelVersion", "featureAsOf",
                        source, "ingestedAt")
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s)
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s)
                     """,
                     (str(uuid.uuid4()), proj_id, m["market_ticker"], now,
+                     edge.side,
                      edge.model_prob, edge.market_prob, edge.fee_cents,
                      edge.net_edge_cents, edge.kelly_fraction, edge.tier.value,
                      edge.sample_n, json.dumps(reason), model_version,

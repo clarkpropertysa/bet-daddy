@@ -1,76 +1,135 @@
 @import "tailwindcss";
 
 /*
- * Design tokens. Dark-committed by choice, not by OS preference: the palette carries
- * meaning here (edge, fee, staleness) and those readings must not shift underneath a
- * user's system setting.
+ * BET DADDY — brand sheet v1 (Aug 2026).
+ * "One steel voice on paper." Odds board on paper, action panels on steel.
  *
- * Chart colours are the validated dark-surface steps from the data-viz reference
- * palette. Note the known constraint: --pos and --neg (aqua/red) sit at CVD ΔE 6.5
- * for protanopia, which is legal ONLY with secondary encoding. Every edge value in
- * this app therefore carries an explicit +/- sign and a directional glyph; colour is
- * never the sole channel.
+ * LIGHT-COMMITTED. Paper is the default ground per the brand sheet, so this is not
+ * an OS-following theme: the palette carries meaning (steel = odds/actions, warm =
+ * negative) and those readings must not invert underneath the reader.
  */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --bg:            #0a0a0b;
-  --surface-1:     #111113;
-  --surface-2:     #17171a;
-  --surface-3:     #1e1e22;
-  --line:          #26262b;
-  --line-strong:   #34343b;
+  /* --- brand core (canonical hex from the sheet) --- */
+  --steel:        #5980A6;   /* odds, actions, the mark */
+  --steel-900:    #1D2D3D;   /* action panels, app icon, fields */
+  --paper:        #F2F2F3;   /* the default ground */
+  --ink:          #1D1F20;   /* all body copy */
 
-  --ink:           #ececef;
-  --ink-2:         #a1a1aa;
-  --ink-3:         #6b6b76;
+  /* --- steel ramp 100 -> 900, sampled from the sheet ---
+     tints for hovers and rows; 700+ for accent text on paper */
+  --steel-100: #EDF5FF;
+  --steel-200: #D5EBFF;
+  --steel-300: #B4D9FD;
+  --steel-400: #94BCE3;
+  --steel-500: #739DC3;
+  --steel-600: #587DA2;
+  --steel-700: #406180;
+  --steel-800: #2B455C;
 
-  --pos:           #199e70;
-  --neg:           #e66767;
-  --warn:          #c98500;
-  --accent:        #3987e5;
+  /* --- surfaces --- */
+  --card:       #FFFFFF;
+  --line:       #E2E2E4;
+  --line-2:     #CFD4DA;
+
+  /* --- ink scale --- */
+  --ink-2:      #55585C;
+  --ink-3:      #8A8F95;
+
+  /* --- polarity ---
+     The brand is deliberately monochrome, but edge needs direction. Steel is the
+     brand's own "actions" colour and carries POSITIVE; a warm counterpole carries
+     negative. Both are validated against paper (CVD ΔE 14.8 deutan / 18.4 normal).
+     Colour is never the only channel — every edge also carries a sign and a glyph. */
+  --pos:        #40617F;
+  --neg:        #A6553F;
+  --warn:       #9A6B27;
+
+  /* --- chart marks only ---
+     Brand steel sits at chroma 0.073 and reads gray as a chart series. Chart marks
+     use a chroma-lifted step so they remain distinguishable as data; the UI keeps
+     the brand value. Validated on paper: CVD ΔE 19.9, normal 24.2, contrast >= 3:1. */
+  --chart-1:    #3D7BB5;
+  --chart-2:    #B04A2F;
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-
-  --color-bg: var(--bg);
-  --color-surface-1: var(--surface-1);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
+  --color-steel: var(--steel);
+  --color-steel-900: var(--steel-900);
+  --color-steel-100: var(--steel-100);
+  --color-steel-200: var(--steel-200);
+  --color-steel-300: var(--steel-300);
+  --color-steel-400: var(--steel-400);
+  --color-steel-500: var(--steel-500);
+  --color-steel-600: var(--steel-600);
+  --color-steel-700: var(--steel-700);
+  --color-steel-800: var(--steel-800);
+  --color-paper: var(--paper);
+  --color-card: var(--card);
   --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
+  --color-line-2: var(--line-2);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
   --color-pos: var(--pos);
   --color-neg: var(--neg);
   --color-warn: var(--warn);
-  --color-accent: var(--accent);
 }
 
 html, body {
-  font-family: var(--font-sans);
-  background: var(--bg);
+  background: var(--paper);
   color: var(--ink);
 }
 
-/* Every figure in a data column is tabular: without this, columns jitter as digits
-   change width and the eye loses the scan line. */
-.tnum, .font-mono, table td, table th {
+/* Display face: heavy condensed caps. The wordmark, section numbers, CTAs. */
+.display {
+  font-family: var(--font-display), "Oswald", ui-sans-serif, sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+/* Letterspaced small caps — column heads, eyebrow labels, meta. */
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* Every figure in a data column is tabular, or columns jitter as digits change. */
+.tnum, table td, table th, .font-mono {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
 
-/* Dense-table scan aid: a hairline that does not compete with the data. */
-.divide-line > * + * { border-top: 1px solid var(--line); }
+/*
+ * The signature motif from the brand sheet: numbers live in outlined steel boxes,
+ * never as bare text. Used for prices, strikes and edges.
+ */
+.odds-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--steel-300);
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--steel-700);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.odds-box--pos { border-color: var(--pos); color: var(--pos); }
+.odds-box--neg { border-color: var(--neg); color: var(--neg); }
+.odds-box--muted { border-color: var(--line-2); color: var(--ink-3); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--surface-1); }
-::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: #43434c; }
+::-webkit-scrollbar-track { background: var(--paper); }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--steel-400); }
 
-/* Recharts paints an SVG focus outline on every hover; suppress it, keep keyboard. */
 .recharts-wrapper:focus { outline: none; }

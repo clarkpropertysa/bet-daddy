@@ -14,6 +14,7 @@ export default async function BoardPage() {
   return (
     <div>
       <PageHeader
+        index="01"
         title="Prop Board"
         sub="Model probability against the Kalshi ask, net of the exact fee. Sorted on net edge, because gross edge is not a bet. Click any row for the full reasoning chain."
         right={<StaleBanner lastRun={archiver?.startedAt ?? null} job="Archiver" />}

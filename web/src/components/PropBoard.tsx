@@ -84,56 +84,57 @@ export function PropBoard({ rows }: { rows: Row[] }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="filter player…"
-          className="w-44 rounded-md border border-line bg-surface-1 px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-3 focus:border-line-strong focus:outline-none"
+          className="w-44 rounded border border-line-2 bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-3 focus:border-steel focus:outline-none"
         />
         <select
           value={market}
           onChange={(e) => setMarket(e.target.value)}
-          className="rounded-md border border-line bg-surface-1 px-2.5 py-1.5 text-xs text-ink focus:border-line-strong focus:outline-none"
+          className="rounded border border-line-2 bg-card px-2.5 py-1.5 text-xs text-ink focus:border-steel focus:outline-none"
         >
           {markets.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
-        <label className="flex items-center gap-1.5 rounded-md border border-line bg-surface-1 px-2.5 py-1.5 text-xs text-ink-2">
+        <label className="flex items-center gap-1.5 rounded border border-line-2 bg-card px-2.5 py-1.5 text-xs text-ink-2">
           min edge
           <input
             type="number" step="0.5" value={minEdge}
             onChange={(e) => setMinEdge(Number(e.target.value))}
-            className="w-12 bg-transparent text-right font-mono text-ink focus:outline-none"
+            className="tnum w-12 bg-transparent text-right text-ink focus:outline-none"
           />
           ¢
         </label>
         <button
           onClick={() => setHideImplausible(!hideImplausible)}
           title="Hide signals where the model disagrees with the market by more than 50 points — almost always a model failure, not an edge."
-          className={`rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+          className={`rounded border px-2.5 py-1.5 text-xs transition-colors ${
             hideImplausible
-              ? "border-line bg-surface-1 text-ink-2 hover:border-line-strong"
-              : "border-neg/40 bg-neg/10 text-neg"
+              ? "border-line-2 bg-card text-ink-2 hover:border-steel"
+              : "border-neg bg-neg/[0.08] text-neg"
           }`}
         >
           {hideImplausible ? "implausible hidden" : "implausible shown"}
         </button>
         <button
           onClick={() => setValidatedOnly(!validatedOnly)}
-          className={`rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+          className={`rounded border px-2.5 py-1.5 text-xs transition-colors ${
             validatedOnly
-              ? "border-pos/40 bg-pos/10 text-pos"
-              : "border-line bg-surface-1 text-ink-2 hover:border-line-strong"
+              ? "border-pos bg-steel-100 text-pos"
+              : "border-line-2 bg-card text-ink-2 hover:border-steel"
           }`}
         >
           validated only
         </button>
-        <span className="ml-auto font-mono text-[11px] text-ink-3">
+        <span className="eyebrow tnum ml-auto">
           {filtered.length}/{rows.length}
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line">
-        <table className="w-full min-w-[880px] border-collapse text-[13px]">
+      <div className="overflow-x-auto rounded border border-line bg-card">
+        <table className="w-full min-w-[920px] border-collapse text-[13px]">
           <thead>
-            <tr className="border-b border-line bg-surface-2 text-[10px] uppercase tracking-[0.06em] text-ink-3">
+            <tr className="border-b border-line">
               <Th onClick={() => toggle("player")} active={sort === "player"} asc={asc}>Player</Th>
               <Th>Market</Th>
+              <Th align="right">Side</Th>
               <Th align="right">Strike</Th>
               <Th align="right" onClick={() => toggle("ask")} active={sort === "ask"} asc={asc}>Ask</Th>
               <Th align="right" onClick={() => toggle("model")} active={sort === "model"} asc={asc}>Model</Th>
@@ -149,7 +150,7 @@ export function PropBoard({ rows }: { rows: Row[] }) {
               <tr
                 key={r.signalId}
                 onClick={() => setActive(r)}
-                className="cursor-pointer border-b border-line/60 transition-colors last:border-0 hover:bg-surface-2"
+                className="cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-steel-100"
               >
                 <Td>
                   <span className="flex items-center gap-2.5">
@@ -165,29 +166,47 @@ export function PropBoard({ rows }: { rows: Row[] }) {
                   </span>
                 </Td>
                 <Td className="text-ink-2">{r.marketType}</Td>
-                <Td align="right" mono>{r.strike ?? "—"}</Td>
-                <Td align="right" mono>{priceCents(r.marketProb)}</Td>
-                <Td align="right" mono>{pct(r.modelProb)}</Td>
-                <Td align="right" mono className="text-warn/80">−{r.feeCents.toFixed(2)}¢</Td>
-                <Td align="right" mono className={`font-semibold ${
-                  r.implausible ? "text-ink-3" : r.edgeCentsNet > 0 ? "text-pos" : "text-neg"
-                }`}>
-                  {/* glyph + explicit sign: colour alone fails protanopia on this pair */}
-                  <span aria-hidden="true" className="mr-0.5">{edgeGlyph(r.edgeCentsNet)}</span>
-                  {signedCents(r.edgeCentsNet)}
+                <Td align="right">
+                  {/* Which bet this is. compute_edge keeps the better side, so a
+                      row can recommend NO even though the strike reads as an over. */}
+                  <span className={`display rounded-[3px] px-1.5 py-[3px] text-[10px] tracking-[0.1em] ${
+                    r.side === "yes"
+                      ? "bg-steel-100 text-steel-800"
+                      : "bg-steel-900 text-white"
+                  }`}>
+                    {r.side}
+                  </span>
+                </Td>
+                <Td align="right"><span className="odds-box odds-box--muted">{r.strike ?? "—"}</span></Td>
+                <Td align="right"><span className="odds-box">{priceCents(r.marketProb)}</span></Td>
+                <Td align="right"><span className="odds-box">{pct(r.modelProb)}</span></Td>
+                <Td align="right" className="tnum text-[12px] text-warn">
+                  −{r.feeCents.toFixed(2)}¢
+                </Td>
+                <Td align="right">
+                  {/* glyph + explicit sign: colour is never the only channel */}
+                  <span className={`odds-box font-semibold ${
+                    r.implausible ? "odds-box--muted"
+                      : r.edgeCentsNet > 0 ? "odds-box--pos" : "odds-box--neg"
+                  }`}>
+                    <span aria-hidden="true" className="mr-1">{edgeGlyph(r.edgeCentsNet)}</span>
+                    {signedCents(r.edgeCentsNet)}
+                  </span>
                   {r.implausible && (
                     <span
                       title="Model disagrees with the market by >50 points. Treat as a model failure, not an edge."
-                      className="ml-1.5 rounded border border-neg/40 bg-neg/10 px-1 py-px text-[9px] font-normal text-neg"
+                      className="ml-1.5 rounded border border-neg bg-neg/[0.08] px-1 py-px text-[9px] text-neg"
                     >
                       ?
                     </span>
                   )}
                 </Td>
-                <Td align="right" mono className="text-ink-2">{(r.kelly * 100).toFixed(1)}%</Td>
+                <Td align="right" className="tnum text-[12px] text-ink-2">
+                  {(r.kelly * 100).toFixed(1)}%
+                </Td>
                 <Td><Tier tier={r.tier} n={r.sampleN} /></Td>
                 <Td align="right">
-                  <span className="text-[11px] text-ink-3">why →</span>
+                  <span className="eyebrow text-steel">why →</span>
                 </Td>
               </tr>
             ))}
@@ -196,7 +215,7 @@ export function PropBoard({ rows }: { rows: Row[] }) {
       </div>
 
       {filtered.length === 0 && (
-        <p className="mt-3 text-[11px] text-ink-3">
+        <p className="mt-3 text-[11.5px] text-ink-2">
           Nothing matches these filters.
           {hideImplausible && " Implausible signals are hidden — the preseason smoke model disagrees wildly with the market on most of these."}
           {validatedOnly && " No signal has earned VALIDATED yet — that needs 200 settled contracts with positive closing line value."}
@@ -220,9 +239,9 @@ function Th({
   return (
     <th
       onClick={onClick}
-      className={`px-3 py-2 font-medium ${align === "right" ? "text-right" : "text-left"} ${
-        onClick ? "cursor-pointer select-none hover:text-ink-2" : ""
-      } ${active ? "text-ink" : ""}`}
+      className={`eyebrow px-3 py-2.5 ${align === "right" ? "text-right" : "text-left"} ${
+        onClick ? "cursor-pointer select-none hover:text-steel" : ""
+      } ${active ? "!text-steel-800" : ""}`}
     >
       {children}
       {active && <span className="ml-1">{asc ? "↑" : "↓"}</span>}
@@ -241,7 +260,7 @@ function Td({
   return (
     <td
       className={`px-3 py-2 ${align === "right" ? "text-right" : "text-left"} ${
-        mono ? "font-mono text-xs" : ""
+        mono ? "tnum text-xs" : ""
       } ${className}`}
     >
       {children}

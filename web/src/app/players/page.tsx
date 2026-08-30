@@ -10,6 +10,7 @@ export default async function PlayersPage() {
   return (
     <div>
       <PageHeader
+        index="02"
         title="Players"
         sub="Active skill-position players on 2026 rosters, from nflverse."
       />

@@ -10,6 +10,7 @@ type Step = { step: string; multiplier?: number; value: number; detail?: string 
 export type WhyRow = {
   player: string;
   headshotUrl?: string | null;
+  side?: string;
   team: string | null;
   marketType: string;
   strike: number | null;
@@ -47,7 +48,9 @@ export function WhyPanel({
     explain?: Step[];
     percentiles?: Record<string, number>;
     mean?: number;
+    p_over?: number;
   };
+  const side = row.side ?? "yes";
   const chain = reason.explain ?? [];
   const gross = (row.modelProb - row.marketProb) * 100;
   const feeShare = gross > 0 ? Math.min(row.feeCents / gross, 1) : 1;
@@ -57,29 +60,38 @@ export function WhyPanel({
       className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-[2px]"
       onClick={onClose}
     >
+      {/* The brand's action panel: steel, per "odds board on paper, bet slip on
+          steel". Data surfaces inside it revert to paper cards. */}
       <aside
-        className="flex h-full w-full max-w-2xl flex-col overflow-y-auto border-l border-line-strong bg-surface-1 shadow-2xl"
+        className="flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-steel-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-line bg-surface-1/95 px-5 py-4 backdrop-blur">
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/10 bg-steel-900 px-5 py-4">
           <div className="flex items-center gap-3">
             <PlayerAvatar name={row.player} url={row.headshotUrl} size={40} />
             <div>
-            <h2 className="text-[15px] font-semibold tracking-tight text-ink">
+            <h2 className="display text-[17px] leading-none text-white">
               {row.player}
-              {row.team && <span className="ml-2 text-xs font-normal text-ink-3">{row.team}</span>}
+              {row.team && <span className="ml-2 text-xs font-normal text-steel-300">{row.team}</span>}
             </h2>
-            <p className="mt-0.5 text-xs text-ink-3">
-              {row.marketType}
-              {row.strike !== null && (
-                <> · strike <span className="font-mono text-ink-2">{row.strike}</span></>
-              )}
+            <p className="mt-1 flex items-center gap-2 text-xs text-steel-300">
+              <span>
+                {row.marketType}
+                {row.strike !== null && (
+                  <> · strike <span className="tnum text-white">{row.strike}</span></>
+                )}
+              </span>
+              <span className={`display rounded-[3px] px-1.5 py-[2px] text-[10px] tracking-[0.1em] ${
+                side === "yes" ? "bg-steel text-white" : "bg-white text-steel-900"
+              }`}>
+                {side === "yes" ? "over" : "under"}
+              </span>
             </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded border border-line px-2 py-1 text-[11px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink"
+            className="rounded border border-white/20 px-2 py-1 text-[10px] uppercase tracking-widest text-steel-300 transition-colors hover:border-white/40 hover:text-white"
           >
             esc
           </button>
@@ -91,38 +103,38 @@ export function WhyPanel({
             note="Each adjustment is a named multiplier applied to the baseline."
           >
             {chain.length === 0 ? (
-              <p className="text-xs text-ink-3">No adjustment chain stored.</p>
+              <p className="text-xs text-steel-400">No adjustment chain stored.</p>
             ) : (
-              <ol className="space-y-px overflow-hidden rounded border border-line">
+              <ol className="overflow-hidden rounded border border-white/10">
                 {chain.map((s, i) => {
                   const isBase = i === 0;
                   return (
                     <li
                       key={i}
-                      className="flex items-baseline justify-between gap-3 bg-surface-2 px-3 py-2"
+                      className="flex items-baseline justify-between gap-3 border-b border-white/[0.07] bg-white/[0.04] px-3 py-2 last:border-0"
                     >
                       <span className="min-w-0 text-[13px]">
-                        <span className={isBase ? "text-ink-2" : "text-ink"}>{s.step}</span>
+                        <span className={isBase ? "text-steel-300" : "text-white"}>{s.step}</span>
                         {s.detail && (
-                          <span className="ml-2 text-[11px] text-ink-3">{s.detail}</span>
+                          <span className="ml-2 text-[11px] text-steel-400">{s.detail}</span>
                         )}
                       </span>
-                      <span className="shrink-0 font-mono text-xs">
+                      <span className="tnum shrink-0 text-xs">
                         {s.multiplier !== undefined && (
                           <span
                             className={
                               s.multiplier > 1
-                                ? "mr-2 text-pos"
+                                ? "mr-2 text-steel-300"
                                 : s.multiplier < 1
-                                  ? "mr-2 text-neg"
-                                  : "mr-2 text-ink-3"
+                                  ? "mr-2 text-[#E08A66]"
+                                  : "mr-2 text-steel-400"
                             }
                           >
                             {s.multiplier > 1 ? "↑" : s.multiplier < 1 ? "↓" : "·"}
                             {s.multiplier.toFixed(3)}
                           </span>
                         )}
-                        <span className="text-ink">{s.value.toFixed(2)}</span>
+                        <span className="text-white">{s.value.toFixed(2)}</span>
                       </span>
                     </li>
                   );
@@ -136,16 +148,18 @@ export function WhyPanel({
               title="Simulated distribution"
               note="20,000 Monte Carlo draws. Efficiency bootstrapped from this player's own outcomes, so the right tail is preserved."
             >
-              <DistributionChart
-                percentiles={reason.percentiles}
-                strike={row.strike}
-                mean={reason.mean}
-              />
+              <div className="rounded border border-white/10 bg-paper p-2">
+                <DistributionChart
+                  percentiles={reason.percentiles}
+                  strike={row.strike}
+                  mean={reason.mean}
+                />
+              </div>
               <div className="mt-3 grid grid-cols-5 gap-1.5">
                 {["10", "25", "50", "75", "90"].map((p) => (
-                  <div key={p} className="rounded border border-line bg-surface-2 py-1.5 text-center">
-                    <div className="text-[10px] text-ink-3">p{p}</div>
-                    <div className="font-mono text-[13px] text-ink">
+                  <div key={p} className="rounded border border-white/10 bg-white/[0.04] py-1.5 text-center">
+                    <div className="text-[10px] text-steel-400">p{p}</div>
+                    <div className="tnum text-[13px] text-white">
                       {reason.percentiles![p]?.toFixed(0) ?? "—"}
                     </div>
                   </div>
@@ -155,15 +169,24 @@ export function WhyPanel({
           )}
 
           <Section title="Edge arithmetic">
-            <dl className="overflow-hidden rounded border border-line">
-              <KV k="Model probability" v={pct(row.modelProb)} />
-              <KV k="Kalshi ask" v={priceCents(row.marketProb)} />
+            <dl className="overflow-hidden rounded border border-white/10">
+              {/* Labelled by SIDE. The stored modelProb is the probability of the
+                  chosen side, so calling it "model probability" next to an over
+                  distribution reads as a contradiction on every NO row. */}
+              <KV
+                k={`Model P(${side === "yes" ? "over" : "under"} ${row.strike ?? ""})`}
+                v={pct(row.modelProb)}
+              />
+              {reason.p_over !== undefined && side === "no" && (
+                <KV k="…which is P(over)" v={pct(reason.p_over)} tone="text-steel-400" />
+              )}
+              <KV k={`Kalshi ask (${side})`} v={priceCents(row.marketProb)} />
               <KV k="Gross edge" v={signedCents(gross)} />
-              <KV k="Kalshi fee" v={`−${row.feeCents.toFixed(2)}¢`} tone="text-warn" />
+              <KV k="Kalshi fee" v={`−${row.feeCents.toFixed(2)}¢`} tone="text-[#E0B066]" />
               <KV
                 k="Net edge"
                 v={signedCents(row.edgeCentsNet)}
-                tone={row.edgeCentsNet > 0 ? "text-pos" : "text-neg"}
+                tone={row.edgeCentsNet > 0 ? "text-steel-300" : "text-[#E08A66]"}
                 strong
               />
               <KV k="Kelly fraction" v={`${(row.kelly * 100).toFixed(1)}%`} />
@@ -171,20 +194,20 @@ export function WhyPanel({
 
             {gross > 0 && (
               <div className="mt-3">
-                <div className="mb-1 flex justify-between text-[10px] text-ink-3">
+                <div className="mb-1 flex justify-between text-[10px] text-steel-400">
                   <span>fee as share of gross edge</span>
-                  <span className="font-mono">{(feeShare * 100).toFixed(0)}%</span>
+                  <span className="tnum">{(feeShare * 100).toFixed(0)}%</span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
                   <div
-                    className="h-full rounded-full bg-warn"
+                    className="h-full rounded-full bg-[#E0B066]"
                     style={{ width: `${feeShare * 100}%` }}
                   />
                 </div>
               </div>
             )}
 
-            <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
+            <p className="mt-3 text-[11px] leading-relaxed text-steel-400">
               The fee is charged on entry and peaks at mid-price — 1.75¢ at 50¢. An
               edge smaller than the fee is a losing bet however good the model looks,
               which is why the board sorts on net rather than gross.
@@ -207,10 +230,10 @@ function Section({
 }) {
   return (
     <section>
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-2">
-        {title}
-      </h3>
-      {note && <p className="mb-2 mt-0.5 text-[11px] leading-relaxed text-ink-3">{note}</p>}
+      <h3 className="display text-[12px] tracking-[0.12em] text-steel-300">{title}</h3>
+      {note && (
+        <p className="mb-2 mt-1 text-[11px] leading-relaxed text-steel-400">{note}</p>
+      )}
       <div className={note ? "" : "mt-2"}>{children}</div>
     </section>
   );
@@ -230,12 +253,12 @@ function KV({
   return (
     <div
       className={`flex items-baseline justify-between gap-3 px-3 py-2 ${
-        strong ? "border-t border-line-strong bg-surface-3" : "bg-surface-2"
+        strong ? "border-t border-white/20 bg-white/[0.09]" : "bg-white/[0.04]"
       }`}
     >
-      <dt className="text-[13px] text-ink-2">{k}</dt>
+      <dt className="text-[13px] text-steel-300">{k}</dt>
       <dd
-        className={`font-mono text-xs ${tone ?? "text-ink"} ${strong ? "text-[13px] font-semibold" : ""}`}
+        className={`tnum text-xs ${tone ?? "text-white"} ${strong ? "text-[14px] font-semibold" : ""}`}
       >
         {v}
       </dd>

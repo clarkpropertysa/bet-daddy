@@ -1,7 +1,8 @@
+import { OddsCrown } from "@/components/Logo";
+
 /**
  * Section 0 rule 3: an unavailable source produces an explicit empty state naming
- * which system had no data -- never a placeholder number. `source` is required, so
- * a blank surface cannot ship without saying what is missing.
+ * which system had no data -- never a placeholder number. `source` is required.
  */
 export function Empty({
   title,
@@ -13,18 +14,14 @@ export function Empty({
   hint?: string;
 }) {
   return (
-    <div className="flex flex-col items-center rounded-lg border border-dashed border-line-strong bg-surface-1 px-6 py-14 text-center">
-      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface-2 text-ink-3">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M2 8h12M8 2v12" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.5" />
-        </svg>
+    <div className="flex flex-col items-center rounded border border-dashed border-line-2 bg-card px-6 py-16 text-center">
+      <div className="mb-4 opacity-25">
+        <OddsCrown size={30} />
       </div>
-      <p className="text-[13px] font-medium text-ink">{title}</p>
-      <p className="mt-1 text-[11px] text-ink-3">
-        source <span className="font-mono text-ink-2">{source}</span>
-      </p>
+      <p className="display text-[15px] text-ink">{title}</p>
+      <p className="eyebrow mt-2">source · {source}</p>
       {hint && (
-        <p className="mt-3 max-w-md text-[11px] leading-relaxed text-ink-3">{hint}</p>
+        <p className="mt-4 max-w-md text-[12px] leading-relaxed text-ink-2">{hint}</p>
       )}
     </div>
   );
