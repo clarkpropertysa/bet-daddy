@@ -47,6 +47,9 @@ model Team {
   venue      String?
   timezone   String?
   altitudeFt Int?
+  color      String?
+  color2     String?
+  logoUrl    String?
   players  Player[]
   @@unique([sport, abbrev])
 }

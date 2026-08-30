@@ -815,3 +815,88 @@ But the audit found three things:
    ORDERBOOK DEPTH near close will be sparse, since depth is the one thing
    candlesticks cannot reconstruct. The backfill schedule was densified to six times
    daily in response, since it is the job actually doing the durable work.
+
+---
+
+### D39. Prior-season ratings are a weak prior, and were being used at full strength
+
+Measured year-over-year stability of team net EPA/play across 96 team-seasons
+(2022→23, 23→24, 24→25):
+
+    r = 0.344,  r² = 0.118,  optimal regression slope = 0.37
+
+**Twelve percent of variance.** Offseasons change rosters, coordinators and
+quarterbacks; the rating does not know that. Prior-season ratings are now shrunk to
+0.37 of their distance from league average, and current-season play replaces the
+prior as it accumulates (full weight by 8 games).
+
+Refitting the margin model strictly out of sample — prior-season ratings predicting
+the following season, 816 games:
+
+| | in-sample (what I reported before) | out-of-sample (honest) |
+|---|---|---|
+| R² | 0.318 | **0.038** |
+| RMSE | 11.68 pts | **14.05 pts** |
+
+The earlier figures were fitted on ratings and results from the SAME season and
+flattered the model badly. The lean threshold moved from 1.5 to 3.5 points as a
+result, and most week-1 games now correctly show no lean at all.
+
+A changed starting quarterback is called out explicitly, because it invalidates most
+of an offensive rating.
+
+---
+
+### D40. The grading loop, run end to end — and the bug it found
+
+`SignalResult` had never been populated. Running it against 111 signals on real
+settled markets produced this:
+
+    by side:  no  n=26  CLV = -50.08c
+              yes n=85  CLV =  +1.55c
+
+That asymmetry is not a model failure, it is a **units bug**. `compute_clv_cents`
+takes both prices as YES prices and flips the sign itself for a NO position, but
+`Signal.marketProb` stores the price of the side actually TAKEN — so a NO signal holds
+(1 − yes_ask). Passing it straight through compared a NO entry against a YES close.
+
+After the fix both sides agree at +1.54 / +1.55c, which is what correct units look
+like. Regression test added.
+
+This is the entire argument for running a pipeline end to end rather than unit-testing
+its parts: every component was individually correct.
+
+---
+
+### D41. Calibration, and what it says about the smoke model
+
+Reliability buckets with **Wilson** intervals (normal intervals run past 1.0 on small
+extreme buckets), plus a Brier score decomposed into reliability and resolution.
+Isotonic regression refuses to fit under 200 settled outcomes rather than returning an
+authoritative-looking curve fitted to a handful of points.
+
+Run against the invalid preseason model, it says exactly what it should:
+
+    Brier 0.4532,  skill vs base rate **-0.2738**
+    bucket 0.9-1.0:  n=57,  predicted 0.981,  observed **0.404**
+
+A model worse than predicting the base rate, claiming 98% certainty and hitting 40%.
+That is the harness working.
+
+---
+
+### D42. Anytime TD is an opportunity problem, not a volume one
+
+P(at least one TD) is driven by red-zone and goal-line touches, not yardage between
+the 20s. Structure: expected red-zone touches → per-touch conversion → simulated
+P(≥1), with the touch count carrying its own variance rather than being fixed at its
+mean.
+
+Positional conversion baselines are MEASURED, not assumed:
+
+    TE 0.296  >  QB 0.275  >  WR 0.243  >  RB 0.158   TDs per red-zone touch
+
+Running backs take more red-zone touches but convert fewer of them — which is why a
+volume model would rate them wrong. A player's own rate is used only past 25 red-zone
+touches; below that the positional baseline is, because six red-zone targets is not a
+rate.

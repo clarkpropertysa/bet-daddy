@@ -12,7 +12,7 @@
 export type MarketFamily = {
   key: string;
   label: string;
-  group: "Passing" | "Rushing" | "Receiving" | "Defense";
+  group: "Passing" | "Rushing" | "Receiving" | "Scoring" | "Defense";
   unit: "yards" | "count";
   modelled: boolean;
   note?: string;
@@ -28,13 +28,12 @@ export const MARKET_FAMILIES: MarketFamily[] = [
   { key: "receptions", label: "Receptions", group: "Receiving", unit: "count", modelled: true },
   { key: "longest_rec", label: "Longest reception", group: "Receiving", unit: "yards", modelled: false,
     note: "an extreme-value problem, not a total; needs its own model" },
-  { key: "anytime_td", label: "Anytime TD", group: "Receiving", unit: "count", modelled: false,
-    note: "needs red-zone share and goal-line usage" },
+  { key: "anytime_td", label: "Anytime TD", group: "Scoring", unit: "count", modelled: true },
   { key: "sacks", label: "Sacks", group: "Defense", unit: "count", modelled: false,
     note: "defensive props need a pass-rush model" },
 ];
 
-export const MARKET_GROUPS = ["Passing", "Rushing", "Receiving", "Defense"] as const;
+export const MARKET_GROUPS = ["Passing", "Rushing", "Receiving", "Scoring", "Defense"] as const;
 
 export function familyFor(key: string): MarketFamily | undefined {
   return MARKET_FAMILIES.find((f) => f.key === key);

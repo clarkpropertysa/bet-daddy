@@ -65,3 +65,21 @@ def test_fee_always_reduces_pnl():
 def test_rejects_bad_result():
     with pytest.raises(ValueError):
         settle_pnl_cents("0.4", "yes", "push", "1.0")
+
+
+def test_no_side_entry_must_be_expressed_as_a_yes_price():
+    """Regression: the grader stores the price of the side TAKEN, so a NO signal
+    holds (1 - yes_ask). compute_clv_cents wants both sides in YES terms and flips
+    the sign itself. Passing the NO price straight through compares a NO entry to a
+    YES close -- it produced -50c mean CLV on NO signals against +1.5c on YES, which
+    read as a model failure and was arithmetic."""
+    yes_ask = Decimal("0.40")
+    no_ask = Decimal("1") - yes_ask          # 0.60, what the signal stores
+    yes_close = Decimal("0.35")              # market moved toward the NO holder
+
+    correct = compute_clv_cents(yes_ask, yes_close, "no")
+    assert correct == Decimal("5.00")
+
+    wrong = compute_clv_cents(no_ask, yes_close, "no")
+    assert wrong == Decimal("25.00")
+    assert wrong != correct

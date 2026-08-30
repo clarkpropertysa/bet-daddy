@@ -50,9 +50,11 @@ export default async function SlatePage() {
             )}
           </div>
           <p className="mb-2 text-[11px] leading-relaxed text-ink-3">
-            Leans come from prior-season EPA ratings converted to points by a fitted
-            scale. Single-game margins carry a ±11.7 point error, so a lean is a
-            starting point, not a verdict — and games inside that band show none.
+            Before week 4 the lean rests on last season, shrunk to 37% — prior-season
+            EPA explains only 12% of the next season, so it is a weak prior rather
+            than a read on this roster. Out-of-sample error is ±14 points on a single
+            game, so anything under 3.5 shows no lean at all. Current-season play
+            replaces the prior as it accumulates.
           </p>
           {games.length === 0 ? (
             <p className="text-[12px] text-ink-2">

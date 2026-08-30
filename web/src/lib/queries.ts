@@ -204,6 +204,10 @@ export type SlateGame = {
   leanConfident: boolean;
   leanDisagreement: number | null;
   leanWhy: string[] | null;
+  homeColor: string | null;
+  awayColor: string | null;
+  homeLogo: string | null;
+  awayLogo: string | null;
 };
 
 /**
@@ -220,6 +224,8 @@ export async function getNextSlate(): Promise<SlateGame[]> {
     select
       g.id as "gameId", g."gameDate", g."kickoffUtc"::text as kickoff, g.week,
       ht.abbrev as "homeTeam", at.abbrev as "awayTeam",
+      ht.color as "homeColor", at.color as "awayColor",
+      ht."logoUrl" as "homeLogo", at."logoUrl" as "awayLogo",
       g.venue, g.roof, g."isNeutral", g."divGame",
       g."totalLine", g."spreadLine", g."windMph", g."tempF",
       g."leanTeam", g."projMargin", g."leanConfident", g."leanDisagreement",

@@ -27,6 +27,11 @@ from pipeline.model.features_for_projection import (
     load_player_inputs,
 )
 from pipeline.model.adjustments import defense_adjustment
+from pipeline.model.anytime_td import (
+    build_baselines,
+    load_td_inputs,
+    project_anytime_td,
+)
 from pipeline.model.rationale import build_rationale
 from pipeline.model.signal import compute_edge
 from pipeline.model.simulate import (
@@ -46,6 +51,7 @@ MARKET_MODEL = {
     "rush_yds": "rushing_yards",
     "pass_yds": "passing_yards",
     "pass_tds": "passing_tds",
+    "anytime_td": "anytime_td",
 }
 
 
@@ -102,7 +108,8 @@ def run(
     archive_glob: str,
     pbp_path: str,
     roster_path: str,
-    model_version: str,
+    players_path: str | None = None,
+    model_version: str = "nfl-v1",
     mins_before_close: int = 60,
     iterations: int = 20_000,
     seed: int = 20260909,
@@ -114,6 +121,7 @@ def run(
         return {"markets": 0, "projections": 0, "signals": 0, "skipped": {}}
 
     roster = pq.read_table(roster_path)
+    td_baselines = build_baselines(pbp_path, players_path) if players_path else {}
     xw = build_crosswalk([m["market_ticker"] for m in markets], roster)
     by_key = {
         r["raw_key"]: r for r in xw.to_pylist() if r["gsis_id"] is not None
@@ -177,6 +185,26 @@ def run(
                                       dispersion=pi.carry_dispersion)
                 out = project_rushing_yards(vp, pi.yards_per_carry, [strike],
                                             iterations=iterations, seed=seed)
+            elif model == "anytime_td":
+                # A different problem from a total: driven by red-zone opportunity,
+                # not volume between the 20s.
+                ti = load_td_inputs(pbp_path, players_path, xr["gsis_id"], td_baselines)
+                mult = 1.0
+                for adj_i in adj:
+                    mult *= adj_i.multiplier
+                td = project_anytime_td(ti, mult, iterations=iterations, seed=seed)
+                out = {
+                    "mean": td["p_td"], "stdev": 0.0,
+                    "percentiles": {}, "p_over_by_strike": {str(strike): td["p_td"]},
+                    "explain": [
+                        {"step": "red-zone touches / game",
+                         "value": round(ti.rz_touches_per_game, 2)},
+                        {"step": "TD per red-zone touch", "multiplier": 1.0,
+                         "value": round(ti.td_per_rz_touch, 3),
+                         "detail": ("player's own rate" if ti.used_own_rate
+                                    else f"{ti.position} baseline — too few touches for a personal rate")},
+                    ],
+                }
             elif model == "passing_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       pi.attempts_per_game, adj,
@@ -196,6 +224,7 @@ def run(
             # volume driver differs by market family; the rationale names it
             volume_metric = {
                 "receiving_yards": "targets", "receptions": "targets",
+                "anytime_td": "red-zone touches",
                 "rushing_yards": "carries",
                 "passing_yards": "pass attempts", "passing_tds": "pass attempts",
             }[model]
@@ -288,6 +317,7 @@ def main():
     ap.add_argument("--archive", default="data/archive/market_snapshots/**/*.parquet")
     ap.add_argument("--pbp", default="data/raw/nflverse/pbp_2025.parquet")
     ap.add_argument("--roster", default="data/raw/nflverse/rosters_weekly_2026.parquet")
+    ap.add_argument("--players", default="data/raw/nflverse/players.parquet")
     ap.add_argument("--model-version", default="nfl-v1")
     ap.add_argument("--allow-preseason", action="store_true",
                     help="off by default: preseason usage does not predict anything")
@@ -295,8 +325,15 @@ def main():
     a = ap.parse_args()
 
     with db.track("projection") as run_state:
-        r = run(a.archive, a.pbp, a.roster, a.model_version, a.mins_before_close,
-                allow_preseason=a.allow_preseason)
+        r = run(
+            archive_glob=a.archive,
+            pbp_path=a.pbp,
+            roster_path=a.roster,
+            players_path=a.players,
+            model_version=a.model_version,
+            mins_before_close=a.mins_before_close,
+            allow_preseason=a.allow_preseason,
+        )
         run_state["rows"] = r["signals"]
         run_state["meta"] = {"skipped": r["skipped"], "markets": r["markets"]}
     print(f"markets={r['markets']} projections={r['projections']} signals={r['signals']}")

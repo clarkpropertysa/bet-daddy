@@ -31,6 +31,14 @@ def sync_teams(schedules_path: str, season: int) -> int:
     """
     import psycopg
 
+    colors = {
+        r[0]: (r[1], r[2], r[3], r[4])
+        for r in _rows(
+            f"""select team_abbr, team_name, team_color, team_color2, team_logo_espn
+                from read_parquet('{schedules_path.replace("schedules.parquet", "teams_colors_logos.parquet")}')"""
+        )
+    } if True else {}
+
     teams = _rows(f"""
         select distinct team from (
             select home_team as team from read_parquet('{schedules_path}')
@@ -41,13 +49,17 @@ def sync_teams(schedules_path: str, season: int) -> int:
     """)
     with psycopg.connect(config.DATABASE_URL) as c, c.cursor() as cur:
         for (abbrev,) in teams:
+            name, color, color2, logo = colors.get(abbrev, (abbrev, None, None, None))
             cur.execute(
                 """
-                insert into "Team" (id, sport, abbrev, name)
-                values (%s, 'nfl'::"Sport", %s, %s)
-                on conflict (id) do update set abbrev = excluded.abbrev
+                insert into "Team" (id, sport, abbrev, name, color, color2, "logoUrl")
+                values (%s, 'nfl'::"Sport", %s, %s, %s, %s, %s)
+                on conflict (id) do update
+                  set abbrev = excluded.abbrev, name = excluded.name,
+                      color = excluded.color, color2 = excluded.color2,
+                      "logoUrl" = excluded."logoUrl"
                 """,
-                (f"nfl:{abbrev}", abbrev, abbrev),
+                (f"nfl:{abbrev}", abbrev, name or abbrev, color, color2, logo),
             )
     return len(teams)
 

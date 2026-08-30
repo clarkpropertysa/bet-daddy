@@ -3,6 +3,8 @@ import { Tier, type TierName } from "@/components/Tier";
 import { labelFor } from "@/lib/markets";
 import { signedCents } from "@/lib/format";
 import Link from "next/link";
+import { TeamLogo } from "@/components/TeamLogo";
+import { readableOn, teamColor } from "@/lib/teamColor";
 import type { SlateGame } from "@/lib/queries";
 
 const WIND_THRESHOLD = 15;
@@ -60,20 +62,39 @@ export function SlateGames({ games }: { games: SlateGame[] }) {
                   href={`/board?game=${encodeURIComponent(g.gameId)}`}
                   className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3 py-2.5 transition-colors last:border-0 hover:bg-steel-100"
                 >
-                  <span className="display min-w-[140px] text-[14px] text-ink">
-                    {g.awayTeam} <span className="text-ink-3">@</span> {g.homeTeam}
+                  <span className="flex min-w-[168px] items-center gap-1.5">
+                    <TeamLogo url={g.awayLogo} team={g.awayTeam} size={22} />
+                    <span className="display text-[14px] text-ink">{g.awayTeam}</span>
+                    <span className="text-ink-3">@</span>
+                    <TeamLogo url={g.homeLogo} team={g.homeTeam} size={22} />
+                    <span className="display text-[14px] text-ink">{g.homeTeam}</span>
                   </span>
 
                   {/* The model's lean, shown only when it clears its own noise floor.
-                      RMSE on a single-game margin is ~11.7 points, so a sub-1.5 point
-                      projection is not a view worth stating. */}
+                      Out-of-sample RMSE is ~14 points, so anything under 3.5 is not
+                      a view worth stating. */}
                   {g.leanTeam && (
                     <span className="flex items-center gap-1.5">
                       {g.leanConfident ? (
+                        // Filled in the favoured team's own colour, with the label
+                        // colour chosen by luminance -- team primaries run from
+                        // #FFB612 to #002244 and a fixed label is unreadable on half.
                         <span
-                          className="rounded-[3px] border border-steel bg-steel px-1.5 py-[2px] text-[10px] font-medium uppercase tracking-[0.08em] text-white"
-                          title={(g.leanWhy ?? []).join(" · ")}
+                          className="flex items-center gap-1.5 rounded-[3px] px-1.5 py-[3px] text-[10px] font-medium uppercase tracking-[0.08em]"
+                          style={{
+                            background: teamColor(
+                              g.leanTeam === g.homeTeam ? g.homeColor : g.awayColor,
+                            ),
+                            color: readableOn(
+                              g.leanTeam === g.homeTeam ? g.homeColor : g.awayColor,
+                            ),
+                          }}
                         >
+                          <TeamLogo
+                            url={g.leanTeam === g.homeTeam ? g.homeLogo : g.awayLogo}
+                            team={g.leanTeam ?? ""}
+                            size={13}
+                          />
                           {g.leanTeam} by {Math.abs(g.projMargin ?? 0).toFixed(1)}
                         </span>
                       ) : (
@@ -145,8 +166,8 @@ export function SlateGames({ games }: { games: SlateGame[] }) {
                   )}
                   {!g.leanConfident && g.leanTeam && (
                     <span className="basis-full text-[11px] leading-relaxed text-ink-3">
-                      Projected margin is inside the model&apos;s own error bar
-                      (±11.7 points on a single game), so no side is favoured.
+                      Projected margin is under 3.5 points, inside the model&apos;s
+                      own ±14 point out-of-sample error, so no side is favoured.
                     </span>
                   )}
                 </Link>

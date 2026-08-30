@@ -60,6 +60,8 @@ DATASETS = {
     # coverage on 2025 snap counts; weekly rosters only manage 65.9%.
     "players": Dataset("players", "players", "players.parquet", False,
                        ("gsis_id", "pfr_id", "display_name", "position")),
+    "teams": Dataset("teams", "teams", "teams_colors_logos.parquet", False,
+                     ("team_abbr", "team_name", "team_color", "team_logo_espn")),
     "schedules": Dataset("schedules", "schedules", "games.parquet", False,
                          ("game_id", "season", "week", "gameday", "weekday", "gametime",
                           "away_team", "home_team", "roof", "surface", "stadium")),
