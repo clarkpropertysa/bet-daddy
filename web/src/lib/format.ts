@@ -1,6 +1,6 @@
 /** Display helpers. Money and probabilities are formatted in exactly one place. */
 
-/** Kalshi prices are dollars per $1 contract; users read them as cents. */
+/** Prices are dollars per $1 contract; users read them as cents. */
 export function priceCents(v: unknown): string {
   if (v === null || v === undefined) return "—";
   return `${(Number(v) * 100).toFixed(0)}¢`;

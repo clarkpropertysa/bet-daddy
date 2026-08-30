@@ -14,6 +14,7 @@ Field's 58), so every Seattle home game read as neutral. The authoritative colum
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime, timezone
 
 import duckdb
@@ -21,16 +22,25 @@ import duckdb
 from pipeline.common import config, db
 from pipeline.features.rest import build
 from pipeline.ingest.nflverse import fetch
+from pipeline.model.team_rating import build_ratings, project_game, ratings_dict
 
 # Section 5.5: wind is the weather variable that matters for passing and kicking,
 # and the threshold is roughly 15mph. Temperature mostly is not.
 WIND_THRESHOLD_MPH = 15
 
 
-def sync(season: int) -> dict:
+def sync(season: int, pbp_path: str | None = None) -> dict:
     import psycopg
 
     sched = fetch("schedules")
+    # Ratings come from the PRIOR season, so a projection for `season` is genuinely
+    # out of sample.
+    ratings = None
+    if pbp_path:
+        try:
+            ratings = ratings_dict(build_ratings(pbp_path))
+        except Exception:
+            ratings = None
     rest = build(sched, season=season)
 
     con = duckdb.connect()
@@ -39,7 +49,8 @@ def sync(season: int) -> dict:
 
     games = con.execute(f"""
         select game_id, total_line, spread_line, roof, surface, stadium,
-               temp, wind, location, div_game, home_qb_name, away_qb_name
+               temp, wind, location, div_game, home_qb_name, away_qb_name,
+               home_team, away_team
         from sched where season = {int(season)}
     """).fetchall()
 
@@ -52,15 +63,26 @@ def sync(season: int) -> dict:
     now = datetime.now(timezone.utc)
     with psycopg.connect(config.DATABASE_URL) as c, c.cursor() as cur:
         for (gid, total, spread, roof, surface, stadium, temp, wind, loc,
-             div_game, hqb, aqb) in games:
+             div_game, hqb, aqb, home, away) in games:
+            neutral = (loc or "Home") != "Home"
+            lean = (project_game(home, away, ratings, spread, neutral)
+                    if ratings else None)
             cur.execute(
                 '''update "Game"
                    set "totalLine" = %s, "spreadLine" = %s, roof = %s, surface = %s,
                        venue = %s, "tempF" = %s, "windMph" = %s,
-                       "isNeutral" = %s, "divGame" = %s, "homeQb" = %s, "awayQb" = %s
+                       "isNeutral" = %s, "divGame" = %s, "homeQb" = %s, "awayQb" = %s,
+                       "projMargin" = %s, "leanTeam" = %s, "leanConfident" = %s,
+                       "leanWhy" = %s::jsonb, "leanDisagreement" = %s
                    where id = %s''',
                 (total, spread, roof, surface, stadium, temp, wind,
-                 (loc or "Home") != "Home", bool(div_game), hqb, aqb, gid),
+                 neutral, bool(div_game), hqb, aqb,
+                 lean.projected_margin if lean else None,
+                 lean.favoured if lean else None,
+                 bool(lean.confident) if lean else False,
+                 json.dumps(lean.why) if lean else None,
+                 lean.disagreement if lean else None,
+                 gid),
             )
         for gid, team, days_rest, short_week, post_bye, g6 in ctx:
             cur.execute(
@@ -82,9 +104,11 @@ def sync(season: int) -> dict:
 def main():
     ap = argparse.ArgumentParser(description="Sync per-game schedule context")
     ap.add_argument("--season", type=int, default=2026)
+    ap.add_argument("--ratings-pbp", default=None,
+                    help="prior-season pbp used for team EPA ratings")
     a = ap.parse_args()
     with db.track("sync_context") as run:
-        r = sync(a.season)
+        r = sync(a.season, a.ratings_pbp)
         run["rows"] = r["context_rows"]
         run["meta"] = r
     print(f"games={r['games']} context_rows={r['context_rows']}")

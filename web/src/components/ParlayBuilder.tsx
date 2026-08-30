@@ -53,7 +53,7 @@ export function ParlayBuilder({ available }: { available: PickRow[] }) {
       <Empty
         title="No legs available"
         source="Signal (Neon)"
-        hint="A parlay is built from priced signals. None exist until Kalshi quotes week 1 markets and the projection job runs."
+        hint="A parlay is built from priced signals. None exist until week 1 markets are quoted and the projection job runs."
       />
     );
   }
@@ -219,9 +219,8 @@ export function ParlayBuilder({ available }: { available: PickRow[] }) {
             )}
 
             <p className="mt-3 border-t border-white/10 pt-2.5 text-[10px] leading-relaxed text-steel-400">
-              Kalshi lists these as <span className="text-steel-300">combos</span>
-              (KXMVENFLSINGLEGAME, minimum 2 legs) — a combo resolves YES only if every
-              leg does, which is exactly what is rated here. Correlation values are
+              Multi-leg tickets resolve YES only if every leg does, which is exactly what is
+              rated here. Correlation values are
               documented priors, not fitted: that needs settled multi-leg outcomes the
               archive does not yet hold.
             </p>

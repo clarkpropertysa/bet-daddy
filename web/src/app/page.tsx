@@ -49,6 +49,11 @@ export default async function SlatePage() {
               </span>
             )}
           </div>
+          <p className="mb-2 text-[11px] leading-relaxed text-ink-3">
+            Leans come from prior-season EPA ratings converted to points by a fitted
+            scale. Single-game margins carry a ±11.7 point error, so a lean is a
+            starting point, not a verdict — and games inside that band show none.
+          </p>
           {games.length === 0 ? (
             <p className="text-[12px] text-ink-2">
               No scheduled games found. Run pipeline.ingest.sync_reference.

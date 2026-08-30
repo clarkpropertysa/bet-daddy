@@ -122,6 +122,13 @@ model Game {
   homeQb      String?
   awayQb      String?
   divGame     Boolean  @default(false)
+  /// Model lean from prior-season EPA ratings. RMSE on single-game margin is ~11.7
+  /// points, so `leanConfident` gates whether this is worth showing as a view.
+  projMargin      Float?
+  leanTeam        String?
+  leanConfident   Boolean @default(false)
+  leanWhy         Json?
+  leanDisagreement Float?
   contexts    GameContext[]
   source      String
   ingestedAt  DateTime @default(now())

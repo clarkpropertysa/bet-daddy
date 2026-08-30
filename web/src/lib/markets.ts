@@ -1,11 +1,11 @@
 /**
  * Market taxonomy — the organising spine of the Prop Board.
  *
- * Mirrors pipeline/ingest/kalshi_discovery.py. Declared here in full so the board
+ * Mirrors the ingest layer's series map. Declared here in full so the board
  * can show its own structure BEFORE any signals exist: an empty board that lists the
  * families it will carry tells you far more than a blank page.
  *
- * `modelled` marks families the simulator actually covers. A family Kalshi lists but
+ * `modelled` marks families the simulator actually covers. A family the market lists but
  * we cannot price yet is shown greyed rather than hidden — a silently missing market
  * looks the same as one that does not exist.
  */
@@ -42,4 +42,21 @@ export function familyFor(key: string): MarketFamily | undefined {
 
 export function labelFor(key: string): string {
   return familyFor(key)?.label ?? key;
+}
+
+
+/**
+ * "2026_01_SF_LA" -> "SF @ LA". The game id is a stable key, not a label; showing it
+ * raw in a filter chip leaks the schema into the UI.
+ */
+export function gameLabel(gameId: string): string {
+  const parts = gameId.split("_");
+  if (parts.length < 4) return gameId;
+  const [, , away, home] = parts;
+  return `${away} @ ${home}`;
+}
+
+export function gameWeek(gameId: string): string | null {
+  const parts = gameId.split("_");
+  return parts.length >= 2 ? `Week ${Number(parts[1])}` : null;
 }

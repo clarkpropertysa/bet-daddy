@@ -73,7 +73,7 @@ export function PropBoard({ rows }: { rows: Row[] }) {
       <Empty
         title="No signals yet"
         source="Signal (Neon)"
-        hint="Signals appear once the projection job runs against archived Kalshi prices. The archiver is collecting; no projections have been written."
+        hint="Signals appear once the projection job runs against archived market prices. The archiver is collecting; no projections have been written."
       />
     );
   }

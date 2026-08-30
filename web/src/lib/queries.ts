@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export type BoardRow = {
@@ -8,6 +9,7 @@ export type BoardRow = {
   position: string | null;
   team: string | null;
   marketType: string;
+  gameId: string;
   strike: number | null;
   side: string;
   modelProb: number;
@@ -24,7 +26,7 @@ export type BoardRow = {
 };
 
 /** Latest signal per market, newest first. One row per market, not per run. */
-export async function getBoard(limit = 200): Promise<BoardRow[]> {
+export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]> {
   const rows = await prisma.$queryRaw<BoardRow[]>`
     with latest as (
       select distinct on (s."marketTicker") s.*
@@ -39,6 +41,7 @@ export async function getBoard(limit = 200): Promise<BoardRow[]> {
       p.position          as position,
       t.abbrev            as team,
       pr."marketType"     as "marketType",
+      pr."gameId"         as "gameId",
       -- MarketSnapshot is not mirrored into Postgres (the archive is Parquet), so
       -- the strike is parsed off the ticker: ...-SFBPURDY13-350 -> 350
       nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
@@ -196,6 +199,11 @@ export type SlateGame = {
   homePostBye: boolean;
   awayPostBye: boolean;
   signalCount: number;
+  leanTeam: string | null;
+  projMargin: number | null;
+  leanConfident: boolean;
+  leanDisagreement: number | null;
+  leanWhy: string[] | null;
 };
 
 /**
@@ -214,6 +222,8 @@ export async function getNextSlate(): Promise<SlateGame[]> {
       ht.abbrev as "homeTeam", at.abbrev as "awayTeam",
       g.venue, g.roof, g."isNeutral", g."divGame",
       g."totalLine", g."spreadLine", g."windMph", g."tempF",
+      g."leanTeam", g."projMargin", g."leanConfident", g."leanDisagreement",
+      g."leanWhy",
       hc."daysRest" as "homeRest", ac."daysRest" as "awayRest",
       coalesce(hc."isShortWeek", false) as "homeShortWeek",
       coalesce(ac."isShortWeek", false) as "awayShortWeek",

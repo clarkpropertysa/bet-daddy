@@ -741,3 +741,49 @@ moves passing and kicking; temperature mostly is not.
 
 Also: adding a column via raw SQL from a pipeline job put Prisma's migration history
 into drift. Schema changes go through Prisma, always.
+
+---
+
+### D36. A game lean, with its error bar stated
+
+The Slate now says which side the model favours. That needed a game-level model —
+everything before this projected player props, and asserting a team lean without one
+would have been invention.
+
+Team strength is net EPA per play (offensive EPA/play minus EPA/play allowed). The
+conversion to points is **fitted, not assumed**: least squares of actual margin on
+rating differential across 272 games.
+
+    42.1 points per net EPA/play
+    +2.12 points home-field advantage   (consistent with the modern 2-2.5 estimate)
+    R² 0.318, RMSE 11.68 points
+
+**The RMSE is the headline, not the fit.** An 11.7-point standard error means a
+single-game margin is mostly noise, so the UI does two things: games whose projected
+margin is inside ±1.5 points show **"no lean"** with the reason stated, and the page
+carries the error bar in plain text. A lean is a starting point, not a verdict.
+
+Ratings for a season come from the PRIOR season, so a 2026 projection is genuinely
+out of sample. The fitted constants were estimated in-sample on 2025 and are treated
+as priors.
+
+The reasoning renders **in the row**, not in a tooltip — "LA moves the ball better
+(offense ranked 2) · LA defends better (defense ranked 9) · neutral site, so no
+home-field credit · market has it 4.4 points the other way". A lean nobody can
+inspect is just an assertion.
+
+---
+
+### D37. Venue-neutral UI
+
+All user-visible references to a specific exchange are gone: "Kalshi ask" → "Market
+ask", "Kalshi fee" → "Fee", and the combos copy is now generic multi-leg language.
+
+Internal identifiers keep their real names — the archiver job is still
+`kalshi_archiver`, the ingest module still `kalshi_discovery` — because renaming what
+the pipeline actually talks to would obscure the data's provenance for anyone reading
+the code. Neutrality is a presentation concern, not a reason to lie about the source.
+
+Slate rows link to `/board?game=<id>`, and the filter chip renders `SF @ LA` rather
+than `2026_01_SF_LA`: the game id is a stable key, not a label, and showing it raw
+leaks the schema into the UI.

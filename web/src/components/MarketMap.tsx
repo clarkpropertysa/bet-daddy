@@ -4,7 +4,7 @@ import { MARKET_FAMILIES, MARKET_GROUPS } from "@/lib/markets";
  * The board's structure, shown explicitly.
  *
  * Rendered above the table so the organisation is legible even with zero rows —
- * which is the state until Kalshi quotes week 1. Counts come from live signals.
+ * which is the state until week 1 is quoted. Counts come from live signals.
  */
 export function MarketMap({ counts }: { counts: Record<string, number> }) {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -50,7 +50,7 @@ export function MarketMap({ counts }: { counts: Record<string, number> }) {
         ))}
       </div>
       <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-relaxed text-ink-2">
-        Struck-through families are listed by Kalshi but not yet simulated — shown
+        Struck-through families are offered by the market but not yet simulated — shown
         rather than hidden, so a market we cannot price is distinguishable from one
         that does not exist. Every market is an over/under on a strike; the board
         picks whichever side carries the edge.

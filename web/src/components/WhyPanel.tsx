@@ -216,9 +216,9 @@ export function WhyPanel({
               {reason.p_over !== undefined && side === "no" && (
                 <KV k="…which is P(over)" v={pct(reason.p_over)} tone="text-steel-400" />
               )}
-              <KV k={`Kalshi ask (${side})`} v={priceCents(row.marketProb)} />
+              <KV k={`Market ask (${side})`} v={priceCents(row.marketProb)} />
               <KV k="Gross edge" v={signedCents(gross)} />
-              <KV k="Kalshi fee" v={`−${row.feeCents.toFixed(2)}¢`} tone="text-[#E0B066]" />
+              <KV k="Fee" v={`−${row.feeCents.toFixed(2)}¢`} tone="text-[#E0B066]" />
               <KV
                 k="Net edge"
                 v={signedCents(row.edgeCentsNet)}

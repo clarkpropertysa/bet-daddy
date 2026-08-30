@@ -2,6 +2,7 @@ import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Tier, type TierName } from "@/components/Tier";
 import { labelFor } from "@/lib/markets";
 import { signedCents } from "@/lib/format";
+import Link from "next/link";
 import type { SlateGame } from "@/lib/queries";
 
 const WIND_THRESHOLD = 15;
@@ -38,6 +39,7 @@ const TONE: Record<string, string> = {
 };
 
 export function SlateGames({ games }: { games: SlateGame[] }) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const byDay = games.reduce<Record<string, SlateGame[]>>((acc, g) => {
     const k = fmtDate(g.gameDate);
     (acc[k] ||= []).push(g);
@@ -53,13 +55,44 @@ export function SlateGames({ games }: { games: SlateGame[] }) {
             {gs.map((g) => {
               const fl = flags(g);
               return (
-                <div
+                <Link
                   key={g.gameId}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3 py-2.5 last:border-0"
+                  href={`/board?game=${encodeURIComponent(g.gameId)}`}
+                  className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3 py-2.5 transition-colors last:border-0 hover:bg-steel-100"
                 >
                   <span className="display min-w-[140px] text-[14px] text-ink">
                     {g.awayTeam} <span className="text-ink-3">@</span> {g.homeTeam}
                   </span>
+
+                  {/* The model's lean, shown only when it clears its own noise floor.
+                      RMSE on a single-game margin is ~11.7 points, so a sub-1.5 point
+                      projection is not a view worth stating. */}
+                  {g.leanTeam && (
+                    <span className="flex items-center gap-1.5">
+                      {g.leanConfident ? (
+                        <span
+                          className="rounded-[3px] border border-steel bg-steel px-1.5 py-[2px] text-[10px] font-medium uppercase tracking-[0.08em] text-white"
+                          title={(g.leanWhy ?? []).join(" · ")}
+                        >
+                          {g.leanTeam} by {Math.abs(g.projMargin ?? 0).toFixed(1)}
+                        </span>
+                      ) : (
+                        <span className="eyebrow" title="Projected margin is inside the model's own error bar.">
+                          no lean
+                        </span>
+                      )}
+                      {g.leanConfident &&
+                        g.leanDisagreement !== null &&
+                        Math.abs(g.leanDisagreement) >= 3 && (
+                          <span
+                            className="rounded-[3px] border border-warn/50 bg-warn/[0.08] px-1.5 py-[2px] text-[9px] uppercase tracking-[0.08em] text-warn"
+                            title="Gap between the model's projected margin and the market spread."
+                          >
+                            {Math.abs(g.leanDisagreement).toFixed(1)} off market
+                          </span>
+                        )}
+                    </span>
+                  )}
 
                   <span className="flex items-center gap-1.5">
                     <span className="eyebrow">total</span>
@@ -90,11 +123,33 @@ export function SlateGames({ games }: { games: SlateGame[] }) {
                       {g.venue ?? "venue tbd"}
                       {g.roof ? ` · ${g.roof}` : ""}
                     </span>
-                    <span className="tnum text-[11px] text-ink-3">
-                      {g.signalCount} {g.signalCount === 1 ? "signal" : "signals"}
+                    <span className="tnum text-[11px] text-steel">
+                      {g.signalCount} {g.signalCount === 1 ? "prop" : "props"} →
                     </span>
                   </span>
-                </div>
+
+                  {/* The reasoning, in the row rather than a tooltip. A lean nobody
+                      can inspect is just an assertion. */}
+                  {g.leanConfident && g.leanWhy && g.leanWhy.length > 0 && (
+                    <span className="basis-full text-[11px] leading-relaxed text-ink-2">
+                      {g.leanWhy.join(" · ")}
+                      {g.leanDisagreement !== null &&
+                        Math.abs(g.leanDisagreement) >= 3 && (
+                          <span className="text-warn">
+                            {" "}
+                            · market has it {Math.abs(g.leanDisagreement).toFixed(1)}{" "}
+                            points the other way
+                          </span>
+                        )}
+                    </span>
+                  )}
+                  {!g.leanConfident && g.leanTeam && (
+                    <span className="basis-full text-[11px] leading-relaxed text-ink-3">
+                      Projected margin is inside the model&apos;s own error bar
+                      (±11.7 points on a single game), so no side is favoured.
+                    </span>
+                  )}
+                </Link>
               );
             })}
           </div>
@@ -113,7 +168,7 @@ export function TopEdges({
   if (edges.length === 0) {
     return (
       <p className="text-[12px] leading-relaxed text-ink-2">
-        No positive-edge signals yet. Signals appear once Kalshi quotes the slate and
+        No positive-edge signals yet. Signals appear once the slate is quoted and
         the projection job runs — markets are listed well before they are priced.
       </p>
     );
