@@ -61,19 +61,44 @@ class TeamRating:
     def_rank: int
     games_current: int
     shrinkage: float
+    off_pass: float = 0.0
+    off_rush: float = 0.0
+    def_pass: float = 0.0
+    def_rush: float = 0.0
+    off_pass_rank: int = 0
+    off_rush_rank: int = 0
+    def_pass_rank: int = 0
+    def_rush_rank: int = 0
 
 
 def _epa_query(pbp_path: str, season_type: str) -> str:
+    """Team EPA, split by pass and rush.
+
+    The split matters for explanation: "they move the ball well" is vague, while
+    "they throw well and cannot run" tells a reader which unit the edge rests on and
+    whether it survives a game script that forces the other one.
+    """
     return f"""
         with plays as (
             select * from read_parquet('{pbp_path}')
             where season_type = '{season_type}' and epa is not null
               and play_type in ('pass','run') and coalesce(qb_kneel,0) = 0
         ),
-        off as (select posteam team, avg(epa) off_epa,
-                       count(distinct game_id) g from plays group by 1),
-        def as (select defteam team, avg(epa) def_epa from plays group by 1)
-        select o.team, o.off_epa, d.def_epa, o.off_epa - d.def_epa as net, o.g
+        off as (
+            select posteam team, avg(epa) off_epa,
+                   avg(case when play_type='pass' then epa end) off_pass,
+                   avg(case when play_type='run'  then epa end) off_rush,
+                   count(distinct game_id) g
+            from plays group by 1
+        ),
+        def as (
+            select defteam team, avg(epa) def_epa,
+                   avg(case when play_type='pass' then epa end) def_pass,
+                   avg(case when play_type='run'  then epa end) def_rush
+            from plays group by 1
+        )
+        select o.team, o.off_epa, d.def_epa, o.off_epa - d.def_epa as net, o.g,
+               o.off_pass, o.off_rush, d.def_pass, d.def_rush
         from off o join def d on d.team = o.team
     """
 
@@ -107,11 +132,16 @@ def build_ratings(
                 p.net as prior_net,
                 c.net as cur_net,
                 coalesce(c.off_epa, p.off_epa) as off_epa,
-                coalesce(c.def_epa, p.def_epa) as def_epa
+                coalesce(c.def_epa, p.def_epa) as def_epa,
+                coalesce(c.off_pass, p.off_pass) as off_pass,
+                coalesce(c.off_rush, p.off_rush) as off_rush,
+                coalesce(c.def_pass, p.def_pass) as def_pass,
+                coalesce(c.def_rush, p.def_rush) as def_rush
             from prior p left join cur c on c.team = p.team
         ),
         rated as (
             select team, games_current, off_epa, def_epa,
+                   off_pass, off_rush, def_pass, def_rush,
                    prior_net as raw_net,
                    -- prior season is shrunk; current season is not
                    (1 - w) * (prior_net * {PRIOR_SEASON_SHRINKAGE})
@@ -121,8 +151,12 @@ def build_ratings(
             from blended
         )
         select *,
-               rank() over (order by off_epa desc) as off_rank,
-               rank() over (order by def_epa asc)  as def_rank
+               rank() over (order by off_epa desc)  as off_rank,
+               rank() over (order by def_epa asc)   as def_rank,
+               rank() over (order by off_pass desc) as off_pass_rank,
+               rank() over (order by off_rush desc) as off_rush_rank,
+               rank() over (order by def_pass asc)  as def_pass_rank,
+               rank() over (order by def_rush asc)  as def_rush_rank
         from rated order by net desc
     """).to_arrow_table()
 
@@ -169,21 +203,49 @@ def project_game(
             f"prior-season prior"
         )
 
-    off_gap = h.off_epa - a.off_epa
-    def_gap = a.def_epa - h.def_epa
-    if abs(off_gap) > 0.01:
-        better = home if off_gap > 0 else away
-        r = h if better == home else a
+    # Name the specific units, and where they meet. "Moves the ball well" is vague;
+    # "throws well into a defence that cannot cover" says which matchup carries it.
+    lead, trail = (h, a) if margin >= 0 else (a, h)
+    lead_name = home if margin >= 0 else away
+    trail_name = away if margin >= 0 else home
+
+    if lead.off_pass_rank and trail.def_pass_rank:
         why.append(
-            f"{better} moved the ball better ({r.off_epa:+.3f} EPA/play, "
-            f"{_ord(r.off_rank)} of 32)"
+            f"{lead_name} throws it {_ord(lead.off_pass_rank)}-best "
+            f"({lead.off_pass:+.3f} EPA/dropback) into a pass defense ranked "
+            f"{_ord(trail.def_pass_rank)}"
         )
-    if abs(def_gap) > 0.01:
-        better = home if def_gap > 0 else away
-        r = h if better == home else a
+    if lead.off_rush_rank and trail.def_rush_rank:
         why.append(
-            f"{better} defended better ({r.def_epa:+.3f} EPA/play allowed, "
-            f"{_ord(r.def_rank)} of 32)"
+            f"On the ground {lead_name} is {_ord(lead.off_rush_rank)} "
+            f"({lead.off_rush:+.3f} EPA/carry) against a run defense ranked "
+            f"{_ord(trail.def_rush_rank)}"
+        )
+
+    # Which side of the ball is actually carrying the lean. Without this a
+    # defense-driven edge reads as an offensive one, or as nothing at all.
+    off_edge = lead.off_epa - trail.off_epa
+    def_edge = trail.def_epa - lead.def_epa
+    if abs(off_edge) > 0.005 or abs(def_edge) > 0.005:
+        carrier = "defense" if def_edge > off_edge else "offense"
+        why.append(
+            f"The lean is carried by {lead_name}'s {carrier} "
+            f"({_ord(lead.def_rank if carrier == 'defense' else lead.off_rank)} of 32), "
+            f"not by both units"
+            if abs(def_edge - off_edge) > 0.02 else
+            f"{lead_name} rates ahead on both sides of the ball"
+        )
+
+    # the counter-argument, so a reader sees what beats this
+    if trail.off_pass_rank and trail.off_pass_rank <= 12:
+        why.append(
+            f"{trail_name} is not passive — {_ord(trail.off_pass_rank)} throwing the "
+            f"ball, which is where an upset comes from"
+        )
+    elif trail.def_pass_rank and trail.def_pass_rank <= 10:
+        why.append(
+            f"{trail_name} defends the pass well ({_ord(trail.def_pass_rank)}), which "
+            f"is the most likely way this margin fails to appear"
         )
 
     # A changed quarterback invalidates most of an offensive rating.
@@ -224,6 +286,12 @@ def ratings_dict(tbl: pa.Table) -> dict[str, TeamRating]:
             net=r["net"], raw_net=r["raw_net"],
             off_rank=int(r["off_rank"]), def_rank=int(r["def_rank"]),
             games_current=int(r["games_current"]), shrinkage=float(r["shrinkage"]),
+            off_pass=r["off_pass"] or 0.0, off_rush=r["off_rush"] or 0.0,
+            def_pass=r["def_pass"] or 0.0, def_rush=r["def_rush"] or 0.0,
+            off_pass_rank=int(r["off_pass_rank"] or 0),
+            off_rush_rank=int(r["off_rush_rank"] or 0),
+            def_pass_rank=int(r["def_pass_rank"] or 0),
+            def_rush_rank=int(r["def_rush_rank"] or 0),
         )
         for r in tbl.to_pylist()
     }

@@ -1,22 +1,22 @@
 """Plain-language justification for a signal.
 
-The Why panel already showed the arithmetic. Arithmetic is not an argument: a reader
-cannot AGREE OR DISAGREE with "×1.056". This turns the model's stored facts into
-claims a person can push back on.
+The Why panel showed arithmetic. Arithmetic is not an argument: nobody can agree or
+disagree with "×1.056". This turns the model's stored facts into claims a person can
+push back on individually.
 
-Two hard rules:
+Three rules keep it honest:
 
-1. **Every claim carries its evidence.** No sentence exists that is not derived from a
-   number the model actually used. Nothing is written to sound persuasive.
-2. **The caveats are part of the argument, not a footnote.** A thin baseline or an
-   unvalidated tier belongs in the same list as the drivers, because those are the
-   reasons a reader should disagree.
+1. **Every claim carries its number and its sample size.** A three-game trend and a
+   sixteen-game trend are different claims and must not read the same.
+2. **Caveats sit in the same list as drivers**, not in a footnote. A thin baseline is
+   part of the argument, not a disclaimer attached to it.
+3. **Hit rate is context, never the reason.** Section 2 is emphatic that a backward-
+   looking clearance rate is worthless on its own because the line has already
+   absorbed it. It appears here beside the model's probability, explicitly framed as
+   what the market already knows.
 
-It also states what would CHANGE the answer. A projection that cannot say what would
-falsify it is not an explanation, it is an assertion.
-
-Generated at projection time and stored on the signal, so the rendered explanation is
-what the model believed WHEN IT FIRED — not a recomputation against later data.
+Generated at projection time and stored, so the rendered argument is what the model
+believed WHEN IT FIRED, not a recomputation against later data.
 """
 from __future__ import annotations
 
@@ -25,6 +25,12 @@ from typing import Any
 
 def _pct(x: float) -> str:
     return f"{x * 100:.0f}%"
+
+
+def _ord(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}{ {1:'st',2:'nd',3:'rd'}.get(n % 10, 'th') }".replace(" ", "")
 
 
 def build_rationale(
@@ -46,100 +52,170 @@ def build_rationale(
     net_edge_cents: float,
     sample_n: int,
     tier: str,
+    opponent: str | None = None,
+    position: str | None = None,
+    ctx: Any = None,
 ) -> list[dict[str, Any]]:
-    """Ordered claims. `kind` drives how the UI weights each one."""
     out: list[dict[str, Any]] = []
+    over = side == "yes"
+    label = "over" if over else "under"
 
-    # ---- what the projection rests on -------------------------------------
-    out.append({
-        "kind": "driver",
-        "claim": f"{player_name} averaged {baseline:.1f} {volume_metric} per game.",
-        "evidence": f"{games} games of prior play-by-play. Volume drives props far "
-                    f"more than efficiency, so this is the number that matters most.",
-    })
+    # ---------- opportunity, with its trend -----------------------------------
+    if ctx and ctx.recent_mean is not None and ctx.season_mean:
+        direction = "up" if (ctx.trend_pct or 0) > 0.05 else \
+                    "down" if (ctx.trend_pct or 0) < -0.05 else "flat"
+        out.append({
+            "kind": "driver",
+            "claim": f"{player_name} is averaging {ctx.season_mean:.1f} {volume_metric} "
+                     f"per game, and {ctx.recent_mean:.1f} over his last "
+                     f"{ctx.recent_games} — trending {direction}.",
+            "evidence": (
+                f"{ctx.games_played} games of play-by-play. "
+                + (f"The recent stretch is {abs(ctx.trend_pct):.0%} "
+                   f"{'above' if ctx.trend_pct > 0 else 'below'} his season rate, "
+                   f"on {ctx.recent_games} games — a small sample that moves fast."
+                   if direction != "flat" and ctx.trend_pct is not None
+                   else "Recent usage matches his season rate.")
+            ),
+        })
+    else:
+        out.append({
+            "kind": "driver",
+            "claim": f"{player_name} averaged {baseline:.1f} {volume_metric} per game.",
+            "evidence": f"{games} games of prior play-by-play. Volume drives props far "
+                        f"more than efficiency.",
+        })
+
+    # ---------- how much of the offense he commands ---------------------------
+    if ctx and ctx.target_share is not None:
+        out.append({
+            "kind": "driver",
+            "claim": f"He commands {ctx.target_share:.0%} of his team's targets — "
+                     f"{_ord(ctx.share_rank_on_team)} of {ctx.teammates_counted} "
+                     f"receivers.",
+            "evidence": "Share is more stable than raw counts: it survives a game "
+                        "script that changes how often the offense throws at all.",
+        })
+
+    # ---------- the specific defensive weakness -------------------------------
+    if ctx and ctx.def_metric is not None and opponent:
+        rank_txt = (f", {_ord(ctx.def_rank)} of 32" if ctx.def_rank else "")
+        soft = ctx.def_rank and ctx.def_rank >= 22
+        tough = ctx.def_rank and ctx.def_rank <= 10
+        verdict = ("a matchup to attack" if soft else
+                   "a difficult matchup" if tough else "a middling matchup")
+        out.append({
+            "kind": "driver",
+            "claim": f"{opponent} allows {ctx.def_metric:+.3f} EPA per play against "
+                     f"{ctx.def_split}{rank_txt} — {verdict}.",
+            "evidence": "Graded from what the defense actually gave up, split by the "
+                        "kind of play this prop depends on. Inferred from play-by-play, "
+                        "not charted coverage.",
+        })
 
     for a in adjustments:
         mult = float(a.get("multiplier", 1.0))
         if abs(mult - 1.0) < 0.001:
             continue
-        direction = "raises" if mult > 1 else "lowers"
         out.append({
             "kind": "driver",
-            "claim": f"{a.get('detail') or a.get('step')} — {direction} the projection "
+            "claim": f"{a.get('detail') or a.get('step')} — "
+                     f"{'raises' if mult > 1 else 'lowers'} the projection "
                      f"{abs(mult - 1) * 100:.1f}%.",
-            "evidence": f"Applied as a named multiplier ({mult:.3f}) to the baseline, "
-                        f"not baked into it.",
+            "evidence": f"A named multiplier ({mult:.3f}) applied to the baseline, "
+                        f"not folded into it.",
         })
 
-    # ---- where the strike falls -------------------------------------------
+    # ---------- where the line sits -------------------------------------------
     p50 = percentiles.get("50")
     if p50 is not None:
-        pos = "above" if strike > p50 else "below" if strike < p50 else "exactly at"
+        pos_txt = "above" if strike > p50 else "below" if strike < p50 else "at"
         out.append({
             "kind": "context",
-            "claim": f"Simulating 20,000 games puts the median at {p50:.0f}; "
-                     f"the strike of {strike:g} sits {pos} it.",
-            "evidence": f"P(over {strike:g}) = {_pct(p_over)}. Efficiency is drawn from "
-                        f"this player's own outcomes, so the right tail is real rather "
-                        f"than assumed.",
+            "claim": f"20,000 simulated games put his median at {p50:.0f}. "
+                     f"The line of {strike:g} sits {pos_txt} it.",
+            "evidence": f"P({label} {strike:g}) = {_pct(model_prob)}. Efficiency is "
+                        f"drawn from this player's own outcomes, so the right tail is "
+                        f"his, not an assumed shape.",
         })
 
-    # ---- the disagreement, which IS the bet -------------------------------
+    # ---------- what the market already knows ---------------------------------
+    if ctx and ctx.clearance_n:
+        rate = ctx.clearance_hits / ctx.clearance_n
+        out.append({
+            "kind": "context",
+            "claim": f"He has cleared {strike:g} in {ctx.clearance_hits} of "
+                     f"{ctx.clearance_n} games ({_pct(rate)}).",
+            "evidence": "Context, not the reason. A backward-looking hit rate is "
+                        "already in the price — if it were the edge, everyone holding "
+                        "a box score would have it.",
+        })
+
+    # ---------- the disagreement ----------------------------------------------
     gap = (model_prob - market_prob) * 100
-    label = "over" if side == "yes" else "under"
     out.append({
         "kind": "driver",
-        "claim": f"The market prices the {label} at {market_prob * 100:.0f}¢; "
-                 f"the model says {_pct(model_prob)}.",
-        "evidence": f"A {abs(gap):.1f} point disagreement. The bet is entirely this gap — "
-                    f"if the market is right, there is nothing here.",
+        "claim": f"The market prices the {label} at {market_prob * 100:.0f}¢; the "
+                 f"model says {_pct(model_prob)}.",
+        "evidence": f"A {abs(gap):.1f} point disagreement, and the entire bet. If the "
+                    f"market is right, there is nothing here.",
     })
 
     out.append({
         "kind": "context",
         "claim": f"The fee takes {fee_cents:.2f}¢, leaving {net_edge_cents:+.2f}¢ net.",
-        "evidence": "Kalshi's fee peaks at 1.75¢ near 50¢. An edge smaller than the "
-                    "fee is a losing bet however good the model looks.",
+        "evidence": "The fee peaks near mid-price. An edge smaller than the fee is a "
+                    "losing bet however good the model looks.",
     })
 
-    # ---- what would change the answer -------------------------------------
-    breakeven_prob = market_prob + (fee_cents / 100.0)
+    # ---------- what would change it ------------------------------------------
+    breakeven = market_prob + (fee_cents / 100.0)
     out.append({
         "kind": "sensitivity",
-        "claim": f"The edge disappears if the true probability is below "
-                 f"{_pct(float(breakeven_prob))}.",
-        "evidence": f"That is the market price plus the fee. The model's "
-                    f"{_pct(model_prob)} would have to be overstated by "
-                    f"{(model_prob - float(breakeven_prob)) * 100:.1f} points to be wrong.",
+        "claim": f"The edge dies if the true probability is under {_pct(float(breakeven))}.",
+        "evidence": f"Market price plus fee. The model's {_pct(model_prob)} would have "
+                    f"to be overstated by {(model_prob - float(breakeven)) * 100:.1f} "
+                    f"points to be wrong.",
     })
 
-    if baseline > 0:
-        # how much volume error the edge can absorb before it dies
+    if ctx and ctx.season_mean:
+        # how far volume can fall before the projection stops supporting the line
         out.append({
             "kind": "sensitivity",
-            "claim": f"It rests on {player_name} seeing roughly "
-                     f"{baseline:.1f} {volume_metric}.",
-            "evidence": "A change in role, a game script that stalls the offence, or a "
-                        "snap-count cut moves this first. Check the injury report and "
-                        "depth chart before acting.",
+            "claim": f"It assumes roughly {baseline:.1f} {volume_metric}. A snap-count "
+                     f"cut or a stalled game script moves that first.",
+            "evidence": "Check the depth chart and injury report before acting — usage "
+                        "is the input this projection is most sensitive to.",
         })
 
-    # ---- reasons to disagree ----------------------------------------------
+    # ---------- reasons to disagree -------------------------------------------
+    if ctx and ctx.recent_games and ctx.recent_games < 3:
+        out.append({
+            "kind": "caveat",
+            "claim": f"The recent-form read rests on {ctx.recent_games} game(s).",
+            "evidence": "Too few to separate a trend from a good afternoon.",
+        })
     if games < 8:
         out.append({
             "kind": "caveat",
             "claim": f"The baseline rests on only {games} games.",
-            "evidence": "Thin history. The projection is more sensitive to a single "
-                        "outlier game than the confident-looking number suggests.",
+            "evidence": "Thin history. One outlier game moves this more than the "
+                        "confident-looking number suggests.",
         })
-
+    if ctx and ctx.def_rank is None and opponent:
+        out.append({
+            "kind": "caveat",
+            "claim": f"No reliable defensive grade for {opponent} in this split.",
+            "evidence": "Too few plays to rank. The matchup adjustment is doing "
+                        "nothing here.",
+        })
     if tier == "UNVALIDATED":
         out.append({
             "kind": "caveat",
             "claim": "This signal family has no track record yet.",
             "evidence": f"{sample_n} settled contracts. Promotion needs 200 with "
-                        "positive closing line value. Until then the edge is a claim, "
-                        "not a demonstrated result.",
+                        f"positive closing line value. Until then the edge is a claim, "
+                        f"not a demonstrated result.",
         })
 
     return out

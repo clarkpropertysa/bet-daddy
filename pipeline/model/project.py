@@ -26,7 +26,12 @@ from pipeline.model.features_for_projection import (
     InsufficientHistory,
     load_player_inputs,
 )
+from pipeline.features.defense import (
+    build_pass_defense_grades,
+    build_rush_defense_grades,
+)
 from pipeline.model.adjustments import defense_adjustment
+from pipeline.model.context import defense_detail, load_context
 from pipeline.model.anytime_td import (
     build_baselines,
     load_td_inputs,
@@ -122,6 +127,15 @@ def run(
 
     roster = pq.read_table(roster_path)
     td_baselines = build_baselines(pbp_path, players_path) if players_path else {}
+    # graded once and reused: the rationale needs the SPECIFIC split this prop runs
+    # into, not the team-level average the multiplier uses
+    grades = None
+    if players_path:
+        try:
+            grades = (build_pass_defense_grades(pbp_path, players_path),
+                      build_rush_defense_grades(pbp_path))
+        except Exception:
+            grades = None
     xw = build_crosswalk([m["market_ticker"] for m in markets], roster)
     by_key = {
         r["raw_key"]: r for r in xw.to_pylist() if r["gsis_id"] is not None
@@ -236,6 +250,25 @@ def run(
             if implausible:
                 skip("implausible_divergence_flagged")
 
+            # opponent is the other side of the event ticker: 26SEP10SFLAR
+            opponent = None
+            ev = parts[1] if len(parts) > 1 else ""
+            team_code = (xr.get("team") or "")
+            if team_code and team_code in ev:
+                tail = ev[len(ev.rstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")):]
+                opponent = tail.replace(team_code, "") or None
+
+            pctx = None
+            try:
+                pctx = load_context(pbp_path, xr["gsis_id"], team_code,
+                                    m["market_type"], volume_metric, float(strike))
+                if grades and opponent:
+                    d, rk, split = defense_detail(grades[0], grades[1], opponent,
+                                                  m["market_type"], xr.get("position"))
+                    pctx.def_metric, pctx.def_rank, pctx.def_split = d, rk, split
+            except Exception:
+                pctx = None
+
             reason = {
                 "explain": out["explain"],
                 "percentiles": out["percentiles"],
@@ -264,6 +297,9 @@ def run(
                     net_edge_cents=float(edge_preview.net_edge_cents),
                     sample_n=int(edge_preview.sample_n),
                     tier=edge_preview.tier.value,
+                    opponent=opponent,
+                    position=xr.get("position"),
+                    ctx=pctx,
                 ),
             }
 

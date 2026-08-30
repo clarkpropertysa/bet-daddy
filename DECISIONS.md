@@ -900,3 +900,36 @@ Running backs take more red-zone touches but convert fewer of them — which is 
 volume model would rate them wrong. A player's own rate is used only past 25 red-zone
 touches; below that the positional baseline is, because six red-zone targets is not a
 rate.
+
+---
+
+### D43. Explanations that are specific enough to argue with
+
+The rationale was generic — "he averaged 11.6 targets per game" is a fact, not an
+argument. `pipeline/model/context.py` now loads the surrounding detail that makes a
+projection contestable, each field carrying its own sample size:
+
+* **form**: season rate against the last three games, with the direction and the
+  size of the recent sample stated ("11.6 per game, 10.0 over his last 3 — trending
+  down… on 3 games, a small sample that moves fast")
+* **command of the offense**: target share and rank among his own receivers, because
+  share survives a game script that changes how often the team throws at all
+* **the specific defensive split**: not a team average but the grade for the kind of
+  play this prop depends on, by receiver position or run defense
+* **clearance history**: how often he has actually beaten this number
+
+**Clearance rate is included deliberately and framed carefully.** Section 2 is
+emphatic that a backward-looking hit rate is worthless as a signal because the line
+has already absorbed it. It appears as context beside the model's probability with
+that stated in the evidence line — "if it were the edge, everyone holding a box score
+would have it" — never as a reason.
+
+The game lean got the same treatment. It now names the specific unit matchup
+("SEA throws it 8th-best into a pass defense ranked 11th"), says **which side of the
+ball carries the lean** ("carried by SEA's defense, 2nd of 32, not by both units"),
+and states the counter-argument ("NE is not passive — 1st throwing the ball, which is
+where an upset comes from"). A defense-driven edge previously read as an offensive one
+or as nothing at all.
+
+Both are generated at projection time and stored, so the rendered argument is what the
+model believed when it fired.

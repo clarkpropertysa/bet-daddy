@@ -44,8 +44,8 @@ RESULT_SCHEMA = pa.schema([
     ("raw_key", pa.string()), ("team", pa.string()),
     ("first_initial", pa.string()), ("surname", pa.string()),
     ("jersey", pa.int64()), ("gsis_id", pa.string()),
-    ("full_name", pa.string()), ("method", pa.string()),
-    ("confidence", pa.float64()),
+    ("full_name", pa.string()), ("position", pa.string()),
+    ("method", pa.string()), ("confidence", pa.float64()),
 ])
 
 
@@ -108,6 +108,10 @@ def build_crosswalk(market_tickers: list[str], roster: pa.Table) -> pa.Table:
 
     has_fb = "football_name" in roster.column_names
     fb_col = "football_name" if has_fb else "first_name"
+    # position is optional: real rosters carry it, minimal test fixtures may not
+    has_pos = "position" in roster.column_names
+    pos_src = "position" if has_pos else "cast(null as varchar)"
+    pos_sel = "r.position"
 
     # One row per (player, acceptable initial) so a single join covers both the legal
     # first name and the name the player actually goes by.
@@ -119,9 +123,11 @@ def build_crosswalk(market_tickers: list[str], roster: pa.Table) -> pa.Table:
             full_name,
             gsis_id,
             upper(regexp_replace(last_name, '[^A-Za-z]', '', 'g')) as surname,
-            upper(substr(initial_src, 1, 1)) as initial
+            upper(substr(initial_src, 1, 1)) as initial,
+            position
         from (
             select team, jersey_number, full_name, last_name, gsis_id,
+                   {pos_src} as position,
                    unnest([first_name, {fb_col}]) as initial_src
             from roster_raw
             where jersey_number is not null and gsis_id is not null
@@ -134,32 +140,32 @@ def build_crosswalk(market_tickers: list[str], roster: pa.Table) -> pa.Table:
 
     return con.execute(f"""
         with exact as (
-            select k.raw_key, r.gsis_id, r.full_name
+            select k.raw_key, r.gsis_id, r.full_name, {pos_sel}
             from keys k join roster r
               on r.team = k.team and r.jersey = k.jersey
              and r.surname = k.surname and r.initial = k.first_initial
         ),
         -- same team + name, jersey changed (mid-season number swaps happen)
         fallback as (
-            select k.raw_key, r.gsis_id, r.full_name
+            select k.raw_key, r.gsis_id, r.full_name, {pos_sel}
             from keys k join roster r
               on r.team = k.team and r.surname = k.surname
              and r.initial = k.first_initial
             where k.raw_key not in (select raw_key from exact)
         ),
         resolved as (
-            select raw_key, gsis_id, full_name,
+            select raw_key, gsis_id, full_name, position,
                    '{MatchMethod.EXACT.value}' as method, 1.0 as confidence
             from (select *, row_number() over (partition by raw_key) rn from exact) where rn = 1
             union all
-            select raw_key, gsis_id, full_name,
+            select raw_key, gsis_id, full_name, position,
                    '{MatchMethod.FALLBACK.value}', 0.85
             from (select *, row_number() over (partition by raw_key) rn from fallback) where rn = 1
         )
         select
             k.raw_key, k.team, k.first_initial, k.surname, k.jersey,
             coalesce(r.gsis_id, o.gsis_id)            as gsis_id,
-            r.full_name,
+            r.full_name, r.position,
             case
                 when r.method is not null then r.method
                 when o.gsis_id is not null then '{MatchMethod.MANUAL.value}'
