@@ -7,6 +7,9 @@ export type BoardRow = {
   player: string;
   headshotUrl: string | null;
   position: string | null;
+  depthPos: string | null;
+  depthRank: number | null;
+  isStarter: boolean;
   team: string | null;
   marketType: string;
   gameId: string;
@@ -39,6 +42,9 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       coalesce(p."fullName", 'unresolved') as player,
       p."headshotUrl"     as "headshotUrl",
       p.position          as position,
+      p."depthPos"        as "depthPos",
+      p."depthRank"       as "depthRank",
+      p."isStarter"       as "isStarter",
       t.abbrev            as team,
       pr."marketType"     as "marketType",
       pr."gameId"         as "gameId",

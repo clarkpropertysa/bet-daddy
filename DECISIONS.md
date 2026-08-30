@@ -933,3 +933,34 @@ or as nothing at all.
 
 Both are generated at projection time and stored, so the rendered argument is what the
 model believed when it fired.
+
+---
+
+### D44. The starter filter existed but was never applied where it mattered
+
+Caught in review: the board was showing J.J. McCarthy passing props. He started for
+Minnesota in 2025 and is **QB2 behind Kyler Murray** in 2026 — the database already
+knew (`isStarter = false`), because `pipeline/ingest/depth.py` had computed it.
+
+The filter was only ever used by the Players page. **The projection job never checked
+it.** So the model happily projected a backup off his prior-season starter usage —
+27 attempts per game for a player who may not take a snap — and the rationale then
+explained that number in confident detail.
+
+Applying it: signals fell from **111 to 53**, with **105 markets skipped as
+`backup_QB2`**. Nearly half the board was players whose usage history describes a job
+they no longer hold.
+
+Three changes so this cannot recur silently:
+
+* the projection job loads the latest depth snapshot and refuses anyone past
+  `STARTER_DEPTH` (QB1, RB1-2, WR1-3, TE1), recording the reason as `backup_QB2`
+  rather than a generic skip;
+* every board row renders its depth badge, starters in steel and anyone else in
+  amber — which one a player is can no longer be a hidden field;
+* tests pin the specific case (Murray QB1, McCarthy not) and assert exactly one QB1
+  per team.
+
+The general lesson: a correctness gate that only one surface consults is not a gate.
+`isStarter` was computed, stored, tested and displayed — and still had no effect on
+the numbers the tool actually emitted.

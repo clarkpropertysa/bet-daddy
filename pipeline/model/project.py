@@ -109,23 +109,52 @@ def _is_preseason(market_ticker: str) -> bool:
     return any(mo in parts[1][:7].upper() for mo in PRESEASON_MONTHS)
 
 
+def _starters(depth_path: str) -> dict[str, tuple[str, int]]:
+    """gsis_id -> (position, depth_rank) from the LATEST depth snapshot.
+
+    A backup's prop cannot be projected from his prior usage: J.J. McCarthy started
+    for Minnesota in 2025 and is QB2 behind Kyler Murray in 2026, so his 27
+    attempts-per-game baseline describes a job he no longer has.
+    """
+    con = duckdb.connect()
+    rows = con.execute(f"""
+        with latest as (select max(dt) m from read_parquet('{depth_path}')),
+        ranked as (
+            select d.gsis_id, d.pos_abb, d.pos_rank,
+                   row_number() over (partition by d.gsis_id, d.pos_abb
+                                      order by d.pos_rank) rn
+            from read_parquet('{depth_path}') d, latest
+            where d.dt = latest.m and d.gsis_id is not null
+        )
+        select gsis_id, pos_abb, pos_rank from ranked where rn = 1
+    """).fetchall()
+    return {g: (pos, int(rank)) for g, pos, rank in rows}
+
+
+# Depth ranks whose usage is priceable. Mirrors pipeline/ingest/depth.py.
+STARTER_DEPTH = {"QB": 1, "RB": 2, "WR": 3, "TE": 1}
+
+
 def run(
     archive_glob: str,
     pbp_path: str,
     roster_path: str,
     players_path: str | None = None,
+    depth_path: str | None = None,
     model_version: str = "nfl-v1",
     mins_before_close: int = 60,
     iterations: int = 20_000,
     seed: int = 20260909,
     defense_grades: tuple | None = None,
     allow_preseason: bool = False,
+    allow_backups: bool = False,
 ) -> dict:
     markets = _entry_prices(archive_glob, mins_before_close)
     if not markets:
         return {"markets": 0, "projections": 0, "signals": 0, "skipped": {}}
 
     roster = pq.read_table(roster_path)
+    depth = _starters(depth_path) if depth_path else {}
     td_baselines = build_baselines(pbp_path, players_path) if players_path else {}
     # graded once and reused: the rationale needs the SPECIFIC split this prop runs
     # into, not the team-level average the multiplier uses
@@ -164,6 +193,17 @@ def run(
             model = MARKET_MODEL.get(m["market_type"])
             if not model:
                 skip("unmodelled_market"); continue
+
+            # A backup's baseline describes a role he no longer holds. Refuse rather
+            # than project it: the market knows he is behind someone, our usage
+            # history does not.
+            if depth and not allow_backups:
+                dep = depth.get(xr["gsis_id"])
+                if dep is None:
+                    skip("not_on_depth_chart"); continue
+                pos_abb, rank = dep
+                if rank > STARTER_DEPTH.get(pos_abb, 1):
+                    skip(f"backup_{pos_abb}{rank}"); continue
 
             try:
                 pi = load_player_inputs(pbp_path, xr["gsis_id"])
@@ -354,6 +394,10 @@ def main():
     ap.add_argument("--pbp", default="data/raw/nflverse/pbp_2025.parquet")
     ap.add_argument("--roster", default="data/raw/nflverse/rosters_weekly_2026.parquet")
     ap.add_argument("--players", default="data/raw/nflverse/players.parquet")
+    ap.add_argument("--depth", default="data/raw/nflverse/depth_charts_2026.parquet")
+    ap.add_argument("--allow-backups", action="store_true",
+                    help="off by default: a backup's prior usage describes a role he "
+                         "no longer holds")
     ap.add_argument("--model-version", default="nfl-v1")
     ap.add_argument("--allow-preseason", action="store_true",
                     help="off by default: preseason usage does not predict anything")
@@ -366,9 +410,11 @@ def main():
             pbp_path=a.pbp,
             roster_path=a.roster,
             players_path=a.players,
+            depth_path=a.depth,
             model_version=a.model_version,
             mins_before_close=a.mins_before_close,
             allow_preseason=a.allow_preseason,
+            allow_backups=a.allow_backups,
         )
         run_state["rows"] = r["signals"]
         run_state["meta"] = {"skipped": r["skipped"], "markets": r["markets"]}

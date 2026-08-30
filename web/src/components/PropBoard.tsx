@@ -17,6 +17,9 @@ export type Row = WhyRow & {
   implausible: boolean;
   modelVersion: string;
   headshotUrl: string | null;
+  depthPos: string | null;
+  depthRank: number | null;
+  isStarter: boolean;
 };
 
 type SortKey = "edge" | "player" | "model" | "ask" | "kelly";
@@ -160,8 +163,22 @@ export function PropBoard({ rows }: { rows: Row[] }) {
                       <span className="block truncate font-medium leading-tight text-ink">
                         {r.player}
                       </span>
-                      <span className="block text-[10px] leading-tight text-ink-3">
-                        {[r.position, r.team].filter(Boolean).join(" · ")}
+                      <span className="flex items-center gap-1.5 text-[10px] leading-tight text-ink-3">
+                        {/* Depth role, always shown. A backup's usage history
+                            describes a job he no longer holds, so which one he is
+                            must never be a hidden field. */}
+                        {r.depthPos && r.depthRank && (
+                          <span
+                            className={`rounded-[2px] px-1 py-px font-medium ${
+                              r.isStarter
+                                ? "bg-steel-100 text-steel-800"
+                                : "bg-warn/15 text-warn"
+                            }`}
+                          >
+                            {r.depthPos}{r.depthRank}
+                          </span>
+                        )}
+                        <span>{[r.position, r.team].filter(Boolean).join(" · ")}</span>
                       </span>
                     </span>
                   </span>
