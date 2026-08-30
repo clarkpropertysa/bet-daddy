@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pipeline.common import config, db
+from pipeline.common import blob, config, db
 from pipeline.common.kalshi import KalshiClient, _to_dec
 from pipeline.ingest.kalshi_archiver import SCHEMA, _parse_ts, _strike
 from pipeline.ingest.kalshi_discovery import NFL_PLAYER_PROPS
@@ -133,9 +133,20 @@ def backfill(
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"candles_{now.strftime('%Y%m%d_%H%M%S')}.parquet"
     pq.write_table(tbl, path, compression="zstd")
+
+    # This file is the durable record of minute-level price history -- the input CLV
+    # is computed from. Without this upload it lived only in a 90-day CI artifact,
+    # which is exactly the expiry the blob store exists to prevent.
+    blob_url = None
+    if blob.is_configured():
+        try:
+            blob_url = blob.put_file(f"market_snapshots/backfill/{path.name}", path)
+        except Exception as e:
+            errors.append({"stage": "blob_upload", "error": repr(e)[:200]})
     return {
         "rows": tbl.num_rows, "markets": markets_seen,
         "with_prices": with_prices, "errors": errors, "path": str(path),
+        "blob_url": blob_url,
     }
 
 
@@ -151,6 +162,7 @@ def main():
         run["meta"] = {"markets": r["markets"], "with_prices": r.get("with_prices", 0)}
     print(f"markets={r['markets']} with_prices={r.get('with_prices',0)} rows={r['rows']}")
     print(f"path={r['path']}")
+    print(f"blob={'uploaded' if r.get('blob_url') else 'not configured'}")
     if r["errors"]:
         for e in r["errors"][:5]:
             print("  ", e)

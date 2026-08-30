@@ -22,13 +22,21 @@ def _rows(sql: str, params: list | None = None) -> list[tuple]:
     return duckdb.connect().execute(sql, params or []).fetchall()
 
 
-def sync_teams(schedules_path: str) -> int:
+def sync_teams(schedules_path: str, season: int) -> int:
+    """Teams active in `season`.
+
+    Scoping to the season matters: schedules.parquet spans every year back to 1999,
+    so an unscoped query returns 35 teams -- OAK, SD and STL are relocated franchises
+    that no longer exist under those codes.
+    """
     import psycopg
 
     teams = _rows(f"""
         select distinct team from (
             select home_team as team from read_parquet('{schedules_path}')
+              where season = {int(season)}
             union select away_team from read_parquet('{schedules_path}')
+              where season = {int(season)}
         ) where team is not null
     """)
     with psycopg.connect(config.DATABASE_URL) as c, c.cursor() as cur:
@@ -118,7 +126,7 @@ def main():
     sched = str(raw / "schedules.parquet")
 
     with db.track("sync_reference") as run:
-        t = sync_teams(sched)
+        t = sync_teams(sched, a.season)
         p = sync_players(str(raw / "players.parquet"),
                          str(raw / f"rosters_weekly_{a.season}.parquet"))
         g = sync_games(sched, a.season)

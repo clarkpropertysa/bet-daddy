@@ -17,7 +17,11 @@ on:
   schedule:
     # Deliberately off the round quarter/hour. GitHub queues every :00 cron on the
     # planet at once and sheds the overflow; odd minutes fare measurably better.
-    - cron: "37 5,17 * * *"
+    # GitHub drops most firings on a free-tier private repo: the archiver's
+    # */15-style schedule actually lands every 2-6 hours. Since this job is the
+    # durable path for price history, it runs on a denser schedule so that even a
+    # heavily-thinned firing rate still lands several times a day.
+    - cron: "37 1,5,9,13,17,21 * * *"
   workflow_dispatch:
 
 concurrency:

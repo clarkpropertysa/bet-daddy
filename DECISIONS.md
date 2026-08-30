@@ -787,3 +787,31 @@ the code. Neutrality is a presentation concern, not a reason to lie about the so
 Slate rows link to `/board?game=<id>`, and the filter chip renders `SF @ LA` rather
 than `2026_01_SF_LA`: the game id is a stable key, not a label, and showing it raw
 leaks the schema into the UI.
+
+---
+
+### D38. Audit findings — three real gaps
+
+**The scheduled crons DO fire now.** Six scheduled `archive-markets` runs, two
+`backfill-history`, one `ingest-nflverse`, all succeeding, all capturing rows and
+uploading. Offsetting the cron off round quarter-hours appears to have helped.
+
+But the audit found three things:
+
+1. **The backfill never uploaded to blob.** It holds the 70,862-row minute-level
+   price history — the input CLV is computed from — and it lived only on a local disk
+   and a 90-day CI artifact. The blob store existed precisely to prevent that expiry
+   and the most important dataset was not using it. Fixed; the durable copy went from
+   0.1 MB of snapshots to 0.62 MB including the history.
+
+2. **35 teams, not 32.** `schedules.parquet` spans back to 1999, so an unscoped team
+   sync returned OAK, SD and STL — relocated franchises that no longer exist under
+   those codes. Team sync is now scoped to the target season.
+
+3. **The archiver's real cadence is 2-6 hours, not 15 minutes.** Measured gaps
+   between scheduled runs: 129, 132, 156, 240, 353 minutes. GitHub drops most firings
+   on a free-tier private repo. This does NOT threaten price history — candlestick
+   backfill recovers it at minute resolution for 22 days — but it does mean live
+   ORDERBOOK DEPTH near close will be sparse, since depth is the one thing
+   candlesticks cannot reconstruct. The backfill schedule was densified to six times
+   daily in response, since it is the job actually doing the durable work.
