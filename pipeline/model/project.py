@@ -38,7 +38,15 @@ from pipeline.model.adjustments import (
     rest_adjustment,
     usage_trend_adjustment,
 )
+from pipeline.features.splits import build_availability, build_with_without
+from pipeline.features.usage import build_player_game_usage
 from pipeline.model.context import defense_detail, load_context
+from pipeline.model.player_volume import project_player_volume
+from pipeline.model.team_volume import (
+    build_team_volume,
+    project_for_game,
+    volume_dict,
+)
 from pipeline.model.anytime_td import (
     build_baselines,
     load_td_inputs,
@@ -232,6 +240,7 @@ def run(
     players_path: str | None = None,
     depth_path: str | None = None,
     injuries_path: str | None = None,
+    snaps_path: str | None = None,
     schedule_path: str | None = None,
     season: int = 2026,
     model_version: str = "nfl-v1",
@@ -250,12 +259,35 @@ def run(
     # than refused. Injury-driven usage vacancy is the signal Section 5.2 calls most
     # exploitable; refusing it would be the worst possible failure.
     depth = resolve_starters(depth_path, injuries_path) if depth_path else {}
+    # Share x team volume replaces the raw historical count as the volume baseline.
+    # A raw count assumes both team volume and the player's role stay put; splitting
+    # them lets the projection respond when either moves.
+    team_vol = usage_tbl = splits_tbl = None
+    try:
+        team_vol = volume_dict(build_team_volume(pbp_path))
+        usage_tbl = build_player_game_usage(pbp_path)
+        if players_path and snaps_path:
+            splits_tbl = build_with_without(
+                usage_tbl, build_availability(snaps_path, players_path),
+                pq.read_table(players_path), "target_share")
+    except Exception:
+        team_vol = usage_tbl = splits_tbl = None
+
+    # Teammates ruled out, so a with/without split can move a player's share. Empty
+    # until injury reports publish, which is why the split path is currently inert
+    # rather than wrong.
+    absent_ids: list[str] = []
+    if depth_path and injuries_path:
+        from pipeline.features.starters import injured_out
+        absent_ids = sorted(injured_out(injuries_path))
+
     rest_ctx = {}
     if schedule_path:
         try:
             rest_ctx = _rest_context(schedule_path, season)
         except Exception:
             rest_ctx = {}
+
     td_baselines = build_baselines(pbp_path, players_path) if players_path else {}
     # graded once and reused: the rationale needs the SPECIFIC split this prop runs
     # into, not the team-level average the multiplier uses
@@ -285,6 +317,10 @@ def run(
     # opponent matchup in every rationale while applying it to none of them: the
     # condition read an unused parameter that was always None.
     n_with_adj = 0
+    # How many baselines came from share x team volume rather than a raw count.
+    # Reported for the same reason as with_adjustments: a modelling layer that stops
+    # being reached looks identical to one that is working.
+    n_share_based = 0
 
     def skip(reason: str):
         skipped[reason] = skipped.get(reason, 0) + 1
@@ -340,6 +376,43 @@ def run(
             except Exception:
                 pctx = None
 
+            # Baseline: share x team volume where we can, raw count otherwise.
+            share_metric = {"receiving_yards": "target_share",
+                            "receptions": "target_share",
+                            "rushing_yards": "carry_share"}.get(model)
+            share_note = None
+            baseline_override = None
+
+            # A starting quarterback IS his team's passing volume, so his attempts
+            # come from the team projection directly. That also connects passing
+            # props to game script: an underdog throws more.
+            if model in ("passing_yards", "passing_tds") and team_vol \
+                    and team_code in team_vol:
+                tvq = project_for_game(team_vol[team_code], None)
+                # keep his own share of dropbacks rather than assuming he takes all
+                own = (pi.attempts_per_game / tvq.pass_attempts
+                       if tvq.pass_attempts else 0)
+                if 0.5 <= own <= 1.15:
+                    baseline_override = tvq.pass_attempts * own
+                    share_note = type("SN", (), {
+                        "market_share": own, "team_volume": tvq.pass_attempts,
+                        "projected": baseline_override, "split_delta": None,
+                        "split_teammate": None, "notes": None})()
+
+            if share_metric and team_vol and usage_tbl is not None and team_code in team_vol:
+                tv = project_for_game(team_vol[team_code], None)
+                team_units = (tv.pass_attempts if share_metric == "target_share"
+                              else tv.rush_attempts)
+                raw_pg = (pi.targets_per_game if share_metric == "target_share"
+                          else pi.carries_per_game)
+                pvol = project_player_volume(
+                    usage_tbl, splits_tbl, xr["gsis_id"], team_units,
+                    absent_teammates=absent_ids, metric=share_metric,
+                    fallback_per_game=raw_pg)
+                if pvol and pvol.projected > 0:
+                    baseline_override = pvol.projected
+                    share_note = pvol
+
             adj: list[Adjustment] = []
             if grades is not None and opponent:
                 a = defense_adjustment(opponent, m["market_type"],
@@ -359,19 +432,19 @@ def run(
 
             if model == "receiving_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
-                                      pi.targets_per_game, adj,
+                                      baseline_override or pi.targets_per_game, adj,
                                       dispersion=pi.target_dispersion)
                 out = project_receiving_yards(vp, pi.catch_rate, pi.yards_per_catch,
                                               [strike], iterations=iterations, seed=seed)
             elif model == "receptions":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
-                                      pi.targets_per_game, adj,
+                                      baseline_override or pi.targets_per_game, adj,
                                       dispersion=pi.target_dispersion)
                 out = project_receptions(vp, pi.catch_rate, [strike],
                                          iterations=iterations, seed=seed)
             elif model == "rushing_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
-                                      pi.carries_per_game, adj,
+                                      baseline_override or pi.carries_per_game, adj,
                                       dispersion=pi.carry_dispersion)
                 out = project_rushing_yards(vp, pi.yards_per_carry, [strike],
                                             iterations=iterations, seed=seed)
@@ -412,6 +485,8 @@ def run(
             p_over = out["p_over_by_strike"][str(strike)]
             if adj:
                 n_with_adj += 1
+            if baseline_override is not None:
+                n_share_based += 1
             proj_id = str(uuid.uuid4())
             # volume driver differs by market family; the rationale names it
             volume_metric = {
@@ -463,6 +538,14 @@ def run(
                     position=xr.get("position"),
                     ctx=pctx,
                     promoted_for=promoted_for,
+                    share_note=(
+                        {"share": round(share_note.market_share, 4),
+                         "team_units": round(share_note.team_volume, 1),
+                         "split_delta": share_note.split_delta,
+                         "split_teammate": share_note.split_teammate,
+                         "note": share_note.notes}
+                        if share_note is not None else None
+                    ),
                     match_method=xr.get("method"),
                     game_label=game_label,
                     is_preseason=_is_preseason(m["market_ticker"]),
@@ -512,7 +595,8 @@ def run(
 
     return {"markets": len(markets), "projections": n_proj,
             "signals": n_sig, "skipped": skipped,
-            "with_adjustments": n_with_adj}
+            "with_adjustments": n_with_adj,
+            "share_based_baselines": n_share_based}
 
 
 def main():
@@ -524,6 +608,7 @@ def main():
     ap.add_argument("--depth", default="data/raw/nflverse/depth_charts_2026.parquet")
     ap.add_argument("--injuries", default="data/raw/nflverse/injuries_2026.parquet")
     ap.add_argument("--schedule", default="data/raw/nflverse/schedules.parquet")
+    ap.add_argument("--snaps", default="data/raw/nflverse/snap_counts_2025.parquet")
     ap.add_argument("--season", type=int, default=2026)
     ap.add_argument("--allow-backups", action="store_true",
                     help="off by default: a backup's prior usage describes a role he "
@@ -543,6 +628,7 @@ def main():
             depth_path=a.depth,
             injuries_path=a.injuries if Path(a.injuries).exists() else None,
             schedule_path=a.schedule if Path(a.schedule).exists() else None,
+            snaps_path=a.snaps if Path(a.snaps).exists() else None,
             season=a.season,
             model_version=a.model_version,
             mins_before_close=a.mins_before_close,
@@ -553,7 +639,8 @@ def main():
         run_state["meta"] = {"skipped": r["skipped"], "markets": r["markets"]}
     adj_n = r.get("with_adjustments", 0)
     print(f"markets={r['markets']} projections={r['projections']} "
-          f"signals={r['signals']} with_adjustments={adj_n}")
+          f"signals={r['signals']} with_adjustments={adj_n} "
+          f"share_based={r.get('share_based_baselines', 0)}")
     if r["signals"] and adj_n == 0:
         print("  WARNING: no signal carries an adjustment. The matchup layer is "
               "inert -- check that grades loaded and opponents resolved.")

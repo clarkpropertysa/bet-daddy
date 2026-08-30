@@ -59,6 +59,7 @@ def build_rationale(
     match_method: str | None = None,
     game_label: str | None = None,
     is_preseason: bool = False,
+    share_note: dict | None = None,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
@@ -95,6 +96,26 @@ def build_rationale(
         })
     over = side == "yes"
     label = "over" if over else "under"
+
+    # ---------- how the opportunity number was built ---------------------------
+    if share_note and share_note.get("note") is None:
+        out.append({
+            "kind": "driver",
+            "claim": f"Projected from {share_note['share']:.1%} of a team expected to "
+                     f"run {share_note['team_units']:.0f} of these plays.",
+            "evidence": "Share times team volume, not his raw historical count. A raw "
+                        "count assumes both the team's volume and his role stay put; "
+                        "this responds when either moves.",
+        })
+        if share_note.get("split_delta"):
+            out.append({
+                "kind": "driver",
+                "claim": f"His share is adjusted "
+                         f"{share_note['split_delta']:+.1%} because "
+                         f"{share_note.get('split_teammate') or 'a teammate'} is out.",
+                "evidence": "From a with/without split that cleared its significance "
+                            "and sample gates. Most such splits do not, and are ignored.",
+            })
 
     # ---------- opportunity, with its trend -----------------------------------
     if ctx and ctx.recent_mean is not None and ctx.season_mean:

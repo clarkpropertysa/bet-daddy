@@ -1143,3 +1143,56 @@ one, and the shrinkage silently did nothing. Clamping before shrinking fixes it:
 properly — targets modelled as `team_pass_volume × target_share` rather than raw
 historical counts — which is real modelling work, not wiring. They are not claimed
 anywhere in the UI.
+
+---
+
+### D50. Team volume, so usage and splits finally do work
+
+`features/usage.py` and `features/splits.py` were built, tested and unused because
+they compute a SHARE and nothing supplied a volume to take a share OF. That number now
+exists.
+
+    player_targets = team_pass_attempts x target_share
+
+A raw historical count silently assumes both the team's volume and the player's role
+stay put. Splitting them means the projection responds when either moves — a new
+coordinator throwing ten more times a game, or a teammate's absence moving the share.
+
+**Measured, not assumed.** Year-over-year stability across 96 team-seasons:
+
+| metric | r | r² | optimal shrinkage |
+|---|---|---|---|
+| plays per game | 0.144 | 0.021 | **0.14** |
+| pass attempts | 0.377 | 0.142 | 0.33 |
+| pass **rate** | 0.446 | 0.199 | **0.39** |
+
+Team play count is almost entirely unpredictable from the prior season, so it is
+shrunk nearly to the league mean — after shrinkage the whole league sits inside a
+5-play band, which is the honest representation of knowing almost nothing. Pass rate
+is the most stable team trait and keeps real between-team variation.
+
+**A negative result that contradicts the spec.** Section 5.5 calls the projected game
+total a primary driver of prop volume. Over 1,632 team-games, **the total does not
+predict play count at all: r = 0.030.** High totals come from efficiency, not more
+snaps. The total is therefore deliberately absent from this model, and game script
+moves only the pass/run SPLIT:
+
+    pass_rate = 0.5735 - 0.00316 * team_spread     r = -0.188
+
+A seven-point underdog throws ~2.2pp more often. Real, and small.
+
+**What it changed.** 51 of 53 baselines now come from share x team volume rather than
+a raw count, including quarterbacks — a starting QB is his team's passing volume, so
+his attempts derive from the team projection and passing props pick up game script for
+the first time.
+
+**The splits gate is respected, not re-decided.** `split_adjustment` consumes the
+`significant` and `suppressed` flags features/splits.py already computes. Only **84 of
+6,247** splits (1.3%) clear both. Verified end to end on one that does: Michael Wilson
+goes from 7.19 to 10.93 projected targets with Marvin Harrison Jr. out — the raw
++17.7pp delta capped at +10pp, because these splits carry wide intervals and an
+uncapped one would dominate every other input. Overlapping absences take the largest
+split rather than the sum, since summing double-counts the confounding.
+
+Coverage is reported as `share_based=N` for the same reason as `with_adjustments`: a
+modelling layer that stops being reached looks identical to one that is working.
