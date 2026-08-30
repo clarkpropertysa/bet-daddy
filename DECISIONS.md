@@ -1287,3 +1287,22 @@ and a price can be current while some unrelated job is behind. The Slate reports
 `sync_context` instead, because the Slate is built from schedule and rest, not prices,
 and pointing it at the market archiver made it go red on a page that was perfectly
 current.
+
+---
+
+## An empty assignment is not a value
+
+**2026-08-30.** `.env.local` held `DATABASE_URL=""`. Config loaded `.env.local` and
+then `.env`, and `load_dotenv` will not override a variable that is already set —
+counting an empty assignment as set. So the empty string won permanently, and the real
+URL in `.env` was never read.
+
+Nothing raised. Database writes are best-effort by design, so `is_configured()`
+returned False and every job skipped its writes and reported success. The pipeline
+looked healthy while writing nothing.
+
+`vercel env pull` produces exactly this file for a variable it cannot resolve, so this
+was not an unlucky typo — it is the default outcome of a normal workflow. The files are
+now merged explicitly, with empty values treated as "no opinion" rather than as the
+empty string, and the real process environment still winning over both so CI secrets
+are never overwritten by a checked-out file.

@@ -4,13 +4,34 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# .env.local is gitignored and holds real values; .env.example is the committed template.
-load_dotenv(REPO_ROOT / ".env.local")
-load_dotenv(REPO_ROOT / ".env")
+
+def _load_env() -> None:
+    """Merge .env.local over .env, ignoring EMPTY assignments.
+
+    Not two load_dotenv() calls. load_dotenv does not override a variable that is
+    already set, and it counts an empty assignment as set -- so a bare
+    `DATABASE_URL=""` in .env.local (which is what `vercel env pull` leaves behind for
+    a variable it cannot resolve) permanently shadowed the real value in .env. The
+    result was silent: is_configured() returned False, every database write was
+    skipped by design, and jobs reported success having written nothing.
+
+    An empty value means "no opinion", not "the empty string".
+    """
+    merged = dict(dotenv_values(REPO_ROOT / ".env"))
+    for k, v in dotenv_values(REPO_ROOT / ".env.local").items():
+        if v:
+            merged[k] = v
+    for k, v in merged.items():
+        # The real process environment still wins -- CI passes secrets that way.
+        if not os.environ.get(k):
+            os.environ[k] = v
+
+
+_load_env()
 
 KALSHI_API_BASE = os.getenv(
     "KALSHI_API_BASE", "https://api.elections.kalshi.com/trade-api/v2"
