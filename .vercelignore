@@ -1,0 +1,8 @@
+# The pipeline is not deployed -- it runs in GitHub Actions. Uploading it makes
+# Vercel's framework detection pick the Python project at the repo root over the
+# Next.js app in web/, which is exactly how the first deploy failed.
+data/
+tests/
+.venv/
+__pycache__/
+*.pyc
