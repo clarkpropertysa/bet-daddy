@@ -1053,3 +1053,50 @@ string midpoint turns `ARILV` into `AR`/`ILV`. This is the third instance of the
 mistake — `SFBPURDY13` → `SFB`+`PURDY` was the first — so the split is anchored on the
 real team-code set, longest first, in both the Python and TypeScript implementations,
 with tests naming the failing case.
+
+---
+
+### D48. Investigating the split bug found two worse ones
+
+Asked whether the `ARILV` -> `AR`/`ILV` mistake was worth chasing. It was: a sweep for
+unanchored identifier splitting found the same pattern live in code written in the
+same session, and pulling that thread exposed a second, larger fault.
+
+**1. Opponent resolution was subtracting, not anchoring.**
+
+    tail.replace(team_code, "")
+
+The crosswalk normalises `LAR -> LA`, so every Rams player arrived with
+`team_code = "LA"` and `"SFLAR".replace("LA", "")` produced **"SFR"** — a team that
+does not exist. `defense_detail` then found nothing, so the matchup adjustment
+silently did nothing **for an entire franchise**. `"ARILAC".replace("LA","")` gave
+`"ARIC"` for the same reason.
+
+Now anchored on the real team-code set, returning the NFLVERSE code, because the
+opponent feeds grades keyed on pbp `defteam` — returning Kalshi's `LAR` would have
+missed every Rams grade and reproduced the bug one layer down.
+
+**2. The opponent adjustment was never applied to anything.**
+
+    if defense_grades is not None and m.get("opponent"):
+
+Two faults in one condition. `defense_grades` was an unused function PARAMETER
+defaulting to `None`, not the `grades` built inside the function; and `m` is a market
+row that has no `"opponent"` key. The condition was never true.
+
+So **0 of 53 signals carried the adjustment while 51 of 53 explained one.** The
+rationale described a matchup the arithmetic had never applied — the explanation layer
+was more complete than the model it was explaining, which is the most misleading
+failure mode available.
+
+After the fix: 51 of 53 carry it, multipliers 0.948 to 1.048, inside the documented
+±8% bound.
+
+**The guard.** An adjustment that stops firing looks exactly like one that works, so
+the job now reports `with_adjustments=N` on every run and warns explicitly when
+signals exist but none carry an adjustment. The dead parameter that invited the
+mistake is deleted.
+
+Three instances of one root cause — `SFBPURDY13`, `ARILV`, `SFLAR` — say the lesson
+plainly: **a boundary between concatenated codes can never be found positionally or by
+subtraction. It must be anchored on the known set.**

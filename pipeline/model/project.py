@@ -125,6 +125,39 @@ def _split_matchup(teams: str) -> tuple[str, str] | None:
     return None
 
 
+def _opponent_of(market_ticker: str, team_code: str) -> str | None:
+    """The other team in the event ticker.
+
+    Must be ANCHORED, not subtracted. The previous version did
+    `matchup.replace(team_code, "")`, which breaks whenever one code contains
+    another: the crosswalk normalises LAR -> LA, so every Rams player produced
+    "SFLAR".replace("LA") = "SFR" -- a team that does not exist. defense_detail then
+    found nothing and the opponent adjustment silently did nothing for an entire
+    franchise, all season.
+    """
+    parts = market_ticker.split("-")
+    if len(parts) < 2 or not team_code:
+        return None
+    m = re.match(r"^\d{2}[A-Z]{3}\d{2}([A-Z]{4,8})$", parts[1])
+    if not m:
+        return None
+    split = _split_matchup(m.group(1))
+    if not split:
+        return None
+    away, home = split
+    # the ticker uses Kalshi codes; the crosswalk hands us nflverse codes
+    norm = {"LAR": "LA", "JAX": "JAC", "WSH": "WAS"}
+    a, h = norm.get(away, away), norm.get(home, home)
+    # Return the NFLVERSE code: the opponent feeds defense_detail, whose grades are
+    # keyed on pbp defteam. Returning Kalshi's "LAR" would silently miss every Rams
+    # defensive grade -- the same failure this function was written to fix.
+    if team_code == a:
+        return h
+    if team_code == h:
+        return a
+    return None
+
+
 def _game_label(market_ticker: str) -> str | None:
     """26AUG15CARBUF -> "CAR at BUF, Aug 15".
 
@@ -164,7 +197,6 @@ def run(
     mins_before_close: int = 60,
     iterations: int = 20_000,
     seed: int = 20260909,
-    defense_grades: tuple | None = None,
     allow_preseason: bool = False,
     allow_backups: bool = False,
 ) -> dict:
@@ -201,6 +233,11 @@ def run(
     now = datetime.now(timezone.utc)
     skipped: dict[str, int] = {}
     n_proj = n_sig = 0
+    # Adjustment coverage is reported, because an adjustment that silently stops
+    # firing looks identical to one that is working. This job once explained an
+    # opponent matchup in every rationale while applying it to none of them: the
+    # condition read an unused parameter that was always None.
+    n_with_adj = 0
 
     def skip(reason: str):
         skipped[reason] = skipped.get(reason, 0) + 1
@@ -239,10 +276,13 @@ def run(
             if strike is None:
                 skip("no_strike"); continue
 
+            team_code = (xr.get("team") or "")
+            opponent = _opponent_of(m["market_ticker"], team_code)
+
             adj: list[Adjustment] = []
-            if defense_grades is not None and m.get("opponent"):
-                a = defense_adjustment(m["opponent"], m["market_type"],
-                                       defense_grades[0], defense_grades[1])
+            if grades is not None and opponent:
+                a = defense_adjustment(opponent, m["market_type"],
+                                       grades[0], grades[1])
                 if a:
                     adj.append(a)
 
@@ -299,6 +339,8 @@ def run(
                                           iterations=iterations, seed=seed)
 
             p_over = out["p_over_by_strike"][str(strike)]
+            if adj:
+                n_with_adj += 1
             proj_id = str(uuid.uuid4())
             # volume driver differs by market family; the rationale names it
             volume_metric = {
@@ -314,14 +356,6 @@ def run(
             implausible = divergence > IMPLAUSIBLE_DIVERGENCE
             if implausible:
                 skip("implausible_divergence_flagged")
-
-            # opponent is the other side of the event ticker: 26SEP10SFLAR
-            opponent = None
-            ev = parts[1] if len(parts) > 1 else ""
-            team_code = (xr.get("team") or "")
-            if team_code and team_code in ev:
-                tail = ev[len(ev.rstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")):]
-                opponent = tail.replace(team_code, "") or None
 
             promoted_for = depth.get(xr["gsis_id"]).promoted_for if depth else None
             game_label = _game_label(m["market_ticker"])
@@ -416,7 +450,8 @@ def run(
                 n_sig += 1
 
     return {"markets": len(markets), "projections": n_proj,
-            "signals": n_sig, "skipped": skipped}
+            "signals": n_sig, "skipped": skipped,
+            "with_adjustments": n_with_adj}
 
 
 def main():
@@ -451,7 +486,12 @@ def main():
         )
         run_state["rows"] = r["signals"]
         run_state["meta"] = {"skipped": r["skipped"], "markets": r["markets"]}
-    print(f"markets={r['markets']} projections={r['projections']} signals={r['signals']}")
+    adj_n = r.get("with_adjustments", 0)
+    print(f"markets={r['markets']} projections={r['projections']} "
+          f"signals={r['signals']} with_adjustments={adj_n}")
+    if r["signals"] and adj_n == 0:
+        print("  WARNING: no signal carries an adjustment. The matchup layer is "
+              "inert -- check that grades loaded and opponents resolved.")
     if r["skipped"]:
         print("skipped:")
         for k, v in sorted(r["skipped"].items(), key=lambda x: -x[1]):
