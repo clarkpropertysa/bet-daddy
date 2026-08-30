@@ -28,7 +28,7 @@ export default async function BoardPage({
       <PageHeader
         index="01"
         title="Prop Board"
-        sub="Model probability against the market ask, net of the exact fee. Sorted on net edge, because gross edge is not a bet. Click any row for the full reasoning chain."
+        sub="What the model thinks will happen, and how far that sits from the market. Sorted by how much the gap is worth after fees — gross edge is not a bet. Click any row for the reasoning behind it."
         right={<StaleBanner lastRun={archiver?.startedAt ?? null} job="Archiver" />}
       />
       {game && (

@@ -128,7 +128,8 @@ def main():
     where = 'where s."modelVersion" = %s' if a.model_version else ""
     with psycopg.connect(config.DATABASE_URL) as c, c.cursor() as cur:
         cur.execute(
-            f'''select s."modelProb"::float8, r."settledResult", s.side
+            f'''select s."modelProb"::float8, r."settledResult", s.side,
+                       coalesce((s.reason->>'implausible')::boolean, false)
                 from "SignalResult" r join "Signal" s on s.id = r."signalId"
                 {where} {"and" if a.model_version else "where"}
                 r."settledResult" is not null''',
@@ -142,11 +143,28 @@ def main():
 
     # modelProb is the probability of the side TAKEN, so the outcome is whether that
     # side won -- not whether the market resolved YES.
-    probs = [r[0] for r in rows]
-    outcomes = [1.0 if r[1] == r[2] else 0.0 for r in rows]
+    #
+    # Reported twice. Implausible signals are hidden from the board by default and
+    # would never be traded, so calibrating on them measures a model nobody uses.
+    # But excluding them entirely would hide the model's worst failures, so both are
+    # shown and the actionable set is the one that matters.
+    def split(keep_implausible: bool):
+        sel = [r for r in rows if keep_implausible or not r[3]]
+        return ([r[0] for r in sel], [1.0 if r[1] == r[2] else 0.0 for r in sel])
 
+    all_p, all_y = split(True)
+    act_p, act_y = split(False)
+
+    if act_p and len(act_p) != len(all_p):
+        ab = brier(act_p, act_y)
+        print(f"ACTIONABLE ONLY (implausible excluded): n={ab['n']}  "
+              f"Brier {ab['brier']:.4f}  skill {ab['skill_vs_base_rate']:+.4f}")
+        print()
+
+    probs, outcomes = all_p, all_y
     rep = report(probs, outcomes)
     b = rep["brier"]
+    print("ALL SIGNALS (including implausible):")
     print(f"n settled            : {b['n']}")
     print(f"base rate            : {b['base_rate']:.3f}")
     print(f"Brier score          : {b['brier']:.4f}  (lower better)")

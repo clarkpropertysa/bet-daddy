@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 
 import duckdb
@@ -22,6 +23,7 @@ import pyarrow.parquet as pq
 
 from pipeline.common import config, db
 from pipeline.features.crosswalk import build_crosswalk
+from pipeline.features.starters import STARTER_DEPTH, resolve_starters
 from pipeline.model.features_for_projection import (
     InsufficientHistory,
     load_player_inputs,
@@ -109,38 +111,13 @@ def _is_preseason(market_ticker: str) -> bool:
     return any(mo in parts[1][:7].upper() for mo in PRESEASON_MONTHS)
 
 
-def _starters(depth_path: str) -> dict[str, tuple[str, int]]:
-    """gsis_id -> (position, depth_rank) from the LATEST depth snapshot.
-
-    A backup's prop cannot be projected from his prior usage: J.J. McCarthy started
-    for Minnesota in 2025 and is QB2 behind Kyler Murray in 2026, so his 27
-    attempts-per-game baseline describes a job he no longer has.
-    """
-    con = duckdb.connect()
-    rows = con.execute(f"""
-        with latest as (select max(dt) m from read_parquet('{depth_path}')),
-        ranked as (
-            select d.gsis_id, d.pos_abb, d.pos_rank,
-                   row_number() over (partition by d.gsis_id, d.pos_abb
-                                      order by d.pos_rank) rn
-            from read_parquet('{depth_path}') d, latest
-            where d.dt = latest.m and d.gsis_id is not null
-        )
-        select gsis_id, pos_abb, pos_rank from ranked where rn = 1
-    """).fetchall()
-    return {g: (pos, int(rank)) for g, pos, rank in rows}
-
-
-# Depth ranks whose usage is priceable. Mirrors pipeline/ingest/depth.py.
-STARTER_DEPTH = {"QB": 1, "RB": 2, "WR": 3, "TE": 1}
-
-
 def run(
     archive_glob: str,
     pbp_path: str,
     roster_path: str,
     players_path: str | None = None,
     depth_path: str | None = None,
+    injuries_path: str | None = None,
     model_version: str = "nfl-v1",
     mins_before_close: int = 60,
     iterations: int = 20_000,
@@ -154,7 +131,10 @@ def run(
         return {"markets": 0, "projections": 0, "signals": 0, "skipped": {}}
 
     roster = pq.read_table(roster_path)
-    depth = _starters(depth_path) if depth_path else {}
+    # Same resolver the depth sync uses, so a promoted backup is projected rather
+    # than refused. Injury-driven usage vacancy is the signal Section 5.2 calls most
+    # exploitable; refusing it would be the worst possible failure.
+    depth = resolve_starters(depth_path, injuries_path) if depth_path else {}
     td_baselines = build_baselines(pbp_path, players_path) if players_path else {}
     # graded once and reused: the rationale needs the SPECIFIC split this prop runs
     # into, not the team-level average the multiplier uses
@@ -198,12 +178,9 @@ def run(
             # than project it: the market knows he is behind someone, our usage
             # history does not.
             if depth and not allow_backups:
-                dep = depth.get(xr["gsis_id"])
-                if dep is None:
-                    skip("not_on_depth_chart"); continue
-                pos_abb, rank = dep
-                if rank > STARTER_DEPTH.get(pos_abb, 1):
-                    skip(f"backup_{pos_abb}{rank}"); continue
+                st = depth.get(xr["gsis_id"])
+                if st is None:
+                    skip("not_starting"); continue
 
             try:
                 pi = load_player_inputs(pbp_path, xr["gsis_id"])
@@ -298,6 +275,7 @@ def run(
                 tail = ev[len(ev.rstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")):]
                 opponent = tail.replace(team_code, "") or None
 
+            promoted_for = depth.get(xr["gsis_id"]).promoted_for if depth else None
             pctx = None
             try:
                 pctx = load_context(pbp_path, xr["gsis_id"], team_code,
@@ -340,6 +318,7 @@ def run(
                     opponent=opponent,
                     position=xr.get("position"),
                     ctx=pctx,
+                    promoted_for=promoted_for,
                 ),
             }
 
@@ -395,6 +374,7 @@ def main():
     ap.add_argument("--roster", default="data/raw/nflverse/rosters_weekly_2026.parquet")
     ap.add_argument("--players", default="data/raw/nflverse/players.parquet")
     ap.add_argument("--depth", default="data/raw/nflverse/depth_charts_2026.parquet")
+    ap.add_argument("--injuries", default="data/raw/nflverse/injuries_2026.parquet")
     ap.add_argument("--allow-backups", action="store_true",
                     help="off by default: a backup's prior usage describes a role he "
                          "no longer holds")
@@ -411,6 +391,7 @@ def main():
             roster_path=a.roster,
             players_path=a.players,
             depth_path=a.depth,
+            injuries_path=a.injuries if Path(a.injuries).exists() else None,
             model_version=a.model_version,
             mins_before_close=a.mins_before_close,
             allow_preseason=a.allow_preseason,

@@ -964,3 +964,59 @@ Three changes so this cannot recur silently:
 The general lesson: a correctness gate that only one surface consults is not a gate.
 `isStarter` was computed, stored, tested and displayed — and still had no effect on
 the numbers the tool actually emitted.
+
+---
+
+### D45. Audit: the same gate-nobody-consults pattern, twice more
+
+**Injury promotion was not honoured by the projection job.** `ingest/depth.py`
+computed `isStarter` WITH promotion; `model/project.py` reimplemented the rule
+WITHOUT it, filtering on raw depth rank. So a backup promoted by a starter's absence
+would have been refused as a backup — and Section 5.2 calls injury-driven usage
+redistribution the single most exploitable signal in props. The tool would have
+refused exactly the players it exists to find.
+
+Root cause was duplication, so the fix is deduplication: `features/starters.py` is now
+the only implementation, used by both. A test constructs an out-QB1 and asserts the
+backup becomes projectable and carries `promoted_for`.
+
+The rationale now leads with that when it applies — "X is starting only because Y is
+out. His usage history was compiled in a smaller role, so the baseline understates
+the opportunity he is about to see" — because it is the largest caveat on such a
+projection.
+
+**The implausible flag was honoured by the web queries but not by calibration.**
+Calibrating on signals the board hides measures a model nobody would trade. Now
+reported both ways, and the split is instructive:
+
+| set | n | Brier | skill vs base rate |
+|---|---|---|---|
+| actionable only | 17 | 0.0268 | **+0.1808** |
+| all signals | 53 | 0.5892 | −0.4141 |
+
+The signals the flag excludes are precisely the ones destroying calibration. (n=17 is
+far too small to conclude anything, and this is still the invalid preseason model —
+but the machinery is right.)
+
+---
+
+### D46. The board states a prediction, not a row of fields
+
+The board showed strike, ask, model, fee, net edge and Kelly as six separate numbers
+and left the reader to assemble the claim. The claim is the product; the numbers are
+its support.
+
+Each row now reads as: **who**, **the call**, **model against market**, **is it worth
+it**.
+
+* the call is a sentence — "OVER 50 rushing yards" — with over/under styled distinctly
+* model and market probabilities are two aligned bars on a shared scale, so the gap is
+  seen rather than computed, with "model is 49 pts higher" stated in words
+* the edge is a verdict with the number beside it, banded by the FEE rather than by
+  taste: under ~2c is mostly fee, so "thin — 1.74¢ of it is fee" says more than
+  "+1.90¢"
+* an implausible row says "model disagrees wildly — likely missing something the
+  market knows" instead of showing a large, inviting number
+
+The raw figures remain in the Why panel, where someone checking the arithmetic will
+look for them.

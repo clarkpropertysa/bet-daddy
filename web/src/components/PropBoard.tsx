@@ -5,7 +5,7 @@ import { Empty } from "@/components/Empty";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Tier, type TierName } from "@/components/Tier";
 import { WhyPanel, type WhyRow } from "@/components/WhyPanel";
-import { edgeGlyph, pct, priceCents, signedCents } from "@/lib/format";
+import { EdgeVerdict, Prediction, ProbabilityGap } from "@/components/Prediction";
 import { labelFor } from "@/lib/markets";
 
 export type Row = WhyRow & {
@@ -133,19 +133,18 @@ export function PropBoard({ rows }: { rows: Row[] }) {
       </div>
 
       <div className="overflow-x-auto rounded border border-line bg-card">
-        <table className="w-full min-w-[920px] border-collapse text-[13px]">
+        <table className="w-full min-w-[860px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-line">
               <Th onClick={() => toggle("player")} active={sort === "player"} asc={asc}>Player</Th>
-              <Th>Market</Th>
-              <Th align="right">Side</Th>
-              <Th align="right">Strike</Th>
-              <Th align="right" onClick={() => toggle("ask")} active={sort === "ask"} asc={asc}>Ask</Th>
-              <Th align="right" onClick={() => toggle("model")} active={sort === "model"} asc={asc}>Model</Th>
-              <Th align="right">Fee</Th>
-              <Th align="right" onClick={() => toggle("edge")} active={sort === "edge"} asc={asc}>Net edge</Th>
-              <Th align="right" onClick={() => toggle("kelly")} active={sort === "kelly"} asc={asc}>Kelly</Th>
-              <Th>Confidence</Th>
+              <Th>The call</Th>
+              <Th onClick={() => toggle("model")} active={sort === "model"} asc={asc}>
+                Model vs market
+              </Th>
+              <Th onClick={() => toggle("edge")} active={sort === "edge"} asc={asc}>
+                Worth it?
+              </Th>
+              <Th>Track record</Th>
               <Th />
             </tr>
           </thead>
@@ -183,44 +182,18 @@ export function PropBoard({ rows }: { rows: Row[] }) {
                     </span>
                   </span>
                 </Td>
-                <Td className="text-ink-2">{labelFor(r.marketType)}</Td>
-                <Td align="right">
-                  {/* Which bet this is. compute_edge keeps the better side, so a
-                      row can recommend NO even though the strike reads as an over. */}
-                  <span className={`display rounded-[3px] px-1.5 py-[3px] text-[10px] tracking-[0.1em] ${
-                    r.side === "yes"
-                      ? "bg-steel-100 text-steel-800"
-                      : "bg-steel-900 text-white"
-                  }`}>
-                    {r.side}
-                  </span>
+                <Td>
+                  <Prediction side={r.side} strike={r.strike} marketType={r.marketType} />
                 </Td>
-                <Td align="right"><span className="odds-box odds-box--muted">{r.strike ?? "—"}</span></Td>
-                <Td align="right"><span className="odds-box">{priceCents(r.marketProb)}</span></Td>
-                <Td align="right"><span className="odds-box">{pct(r.modelProb)}</span></Td>
-                <Td align="right" className="tnum text-[12px] text-warn">
-                  −{r.feeCents.toFixed(2)}¢
+                <Td>
+                  <ProbabilityGap modelProb={r.modelProb} marketProb={r.marketProb} />
                 </Td>
-                <Td align="right">
-                  {/* glyph + explicit sign: colour is never the only channel */}
-                  <span className={`odds-box font-semibold ${
-                    r.implausible ? "odds-box--muted"
-                      : r.edgeCentsNet > 0 ? "odds-box--pos" : "odds-box--neg"
-                  }`}>
-                    <span aria-hidden="true" className="mr-1">{edgeGlyph(r.edgeCentsNet)}</span>
-                    {signedCents(r.edgeCentsNet)}
-                  </span>
-                  {r.implausible && (
-                    <span
-                      title="Model disagrees with the market by >50 points. Treat as a model failure, not an edge."
-                      className="ml-1.5 rounded border border-neg bg-neg/[0.08] px-1 py-px text-[9px] text-neg"
-                    >
-                      ?
-                    </span>
-                  )}
-                </Td>
-                <Td align="right" className="tnum text-[12px] text-ink-2">
-                  {(r.kelly * 100).toFixed(1)}%
+                <Td>
+                  <EdgeVerdict
+                    netCents={r.edgeCentsNet}
+                    feeCents={r.feeCents}
+                    implausible={r.implausible}
+                  />
                 </Td>
                 <Td><Tier tier={r.tier} n={r.sampleN} /></Td>
                 <Td align="right">

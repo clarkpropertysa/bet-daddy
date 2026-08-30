@@ -55,8 +55,21 @@ def build_rationale(
     opponent: str | None = None,
     position: str | None = None,
     ctx: Any = None,
+    promoted_for: str | None = None,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+
+    # Leads the list when it applies: a promoted backup's baseline describes his
+    # role BEFORE the promotion, which is the single most important caveat on the
+    # whole projection.
+    if promoted_for:
+        out.append({
+            "kind": "caveat",
+            "claim": f"{player_name} is starting only because {promoted_for} is out.",
+            "evidence": "His usage history was compiled in a smaller role, so the "
+                        "baseline understates the opportunity he is about to see — "
+                        "and the market may have repriced this faster than the model.",
+        })
     over = side == "yes"
     label = "over" if over else "under"
 
