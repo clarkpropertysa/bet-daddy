@@ -20,6 +20,25 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-extras
+
+      # 40 tests assert against REAL nflverse data -- measured shrinkage constants,
+      # target shares that must reconcile with official weekly stats. That is the
+      # point of them: a fixture cannot catch upstream changing a column's meaning.
+      # The data is gitignored, so it has to be fetched, and cached so pushes are cheap.
+      - name: Cache nflverse parquet
+        uses: actions/cache@v4
+        with:
+          path: data/raw/nflverse
+          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-${{ github.run_id }}
+          restore-keys: |
+            nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-
+
+      - name: Fetch the parquet the tests assert against
+        run: |
+          uv run python -m pipeline.ingest.nflverse --seasons 2025,2026
+          uv run python -m pipeline.ingest.nflverse \
+            --datasets pbp,players,teams --seasons 2025,2026
+
       - name: Verify known-correct values
         run: uv run python -m pytest tests/ -q
 
