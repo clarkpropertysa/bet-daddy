@@ -9,6 +9,7 @@ after a partial failure converges rather than duplicating.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from datetime import datetime, timezone
 
 import duckdb
@@ -22,7 +23,7 @@ def _rows(sql: str, params: list | None = None) -> list[tuple]:
     return duckdb.connect().execute(sql, params or []).fetchall()
 
 
-def sync_teams(schedules_path: str, season: int) -> int:
+def sync_teams(schedules_path: str, season: int, teams_path: str | None = None) -> int:
     """Teams active in `season`.
 
     Scoping to the season matters: schedules.parquet spans every year back to 1999,
@@ -31,13 +32,22 @@ def sync_teams(schedules_path: str, season: int) -> int:
     """
     import psycopg
 
+    # Derived as a SIBLING FILE, not by rewriting a substring of the path. The old
+    # form replaced "schedules.parquet" with the UPSTREAM release filename
+    # (teams_colors_logos.parquet) while the ingest writes it locally as
+    # teams.parquet -- so it only ever worked on a machine that happened to have an
+    # older hand-fetched copy, and failed outright in CI. Substring surgery on a path
+    # is the same class of bug as splitting a concatenated team code positionally.
+    if teams_path is None:
+        teams_path = str(Path(schedules_path).parent / "teams.parquet")
+
     colors = {
         r[0]: (r[1], r[2], r[3], r[4])
         for r in _rows(
             f"""select team_abbr, team_name, team_color, team_color2, team_logo_espn
-                from read_parquet('{schedules_path.replace("schedules.parquet", "teams_colors_logos.parquet")}')"""
+                from read_parquet('{teams_path}')"""
         )
-    } if True else {}
+    }
 
     teams = _rows(f"""
         select distinct team from (
@@ -138,7 +148,7 @@ def main():
     sched = str(raw / "schedules.parquet")
 
     with db.track("sync_reference") as run:
-        t = sync_teams(sched, a.season)
+        t = sync_teams(sched, a.season, str(raw / "teams.parquet"))
         p = sync_players(str(raw / "players.parquet"),
                          str(raw / f"rosters_weekly_{a.season}.parquet"))
         g = sync_games(sched, a.season)
