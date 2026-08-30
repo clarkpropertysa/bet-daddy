@@ -219,10 +219,11 @@ export function ParlayBuilder({ available }: { available: PickRow[] }) {
             )}
 
             <p className="mt-3 border-t border-white/10 pt-2.5 text-[10px] leading-relaxed text-steel-400">
-              Kalshi is an exchange and does not offer parlays. This rates what a
-              combination is worth; it is not a bet slip. Correlation values are
-              documented priors, not fitted — they cannot be until enough multi-leg
-              outcomes settle.
+              Kalshi lists these as <span className="text-steel-300">combos</span>
+              (KXMVENFLSINGLEGAME, minimum 2 legs) — a combo resolves YES only if every
+              leg does, which is exactly what is rated here. Correlation values are
+              documented priors, not fitted: that needs settled multi-leg outcomes the
+              archive does not yet hold.
             </p>
           </>
         )}

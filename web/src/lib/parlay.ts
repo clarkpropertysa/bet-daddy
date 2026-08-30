@@ -18,8 +18,12 @@
  * an overstated correlation makes same-game parlays look better than they are, which
  * is the expensive direction of error.
  *
- * Kalshi is an exchange and does not offer parlays. This is a research surface — what
- * a combination is actually worth — not a bet slip.
+ * Kalshi DOES list multi-leg tickets, as "combos": there is a dedicated Combos
+ * exchange index and a /multivariate_event_collections endpoint carrying
+ * KXMVENFLSINGLEGAME collections with size_min 2. Their functional description —
+ * "resolves to YES only if every associated market resolves to YES" — is precisely
+ * this calculation, so the rating maps onto a real tradeable product rather than a
+ * hypothetical.
  */
 
 export type Leg = {

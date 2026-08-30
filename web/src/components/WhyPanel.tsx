@@ -44,11 +44,13 @@ export function WhyPanel({
 
   if (!row) return null;
 
+  type Claim = { kind: string; claim: string; evidence: string };
   const reason = (row.reason ?? {}) as {
     explain?: Step[];
     percentiles?: Record<string, number>;
     mean?: number;
     p_over?: number;
+    rationale?: Claim[];
   };
   const side = row.side ?? "yes";
   const chain = reason.explain ?? [];
@@ -98,6 +100,40 @@ export function WhyPanel({
         </header>
 
         <div className="space-y-6 px-5 py-5">
+          {reason.rationale && reason.rationale.length > 0 && (
+            <Section
+              title="Why"
+              note="Each claim carries the number behind it, so you can disagree with a specific one rather than the whole thing."
+            >
+              <ul className="space-y-2">
+                {reason.rationale.map((c, i) => (
+                  <li
+                    key={i}
+                    className={`rounded border-l-2 bg-white/[0.04] py-2 pl-3 pr-3 ${
+                      c.kind === "caveat"
+                        ? "border-l-[#E0B066]"
+                        : c.kind === "sensitivity"
+                          ? "border-l-white/30"
+                          : c.kind === "driver"
+                            ? "border-l-steel-300"
+                            : "border-l-white/15"
+                    }`}
+                  >
+                    <p className="text-[12.5px] leading-snug text-white">{c.claim}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-steel-400">
+                      {c.evidence}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex flex-wrap gap-3">
+                <Key swatch="bg-steel-300" label="what drives it" />
+                <Key swatch="bg-white/30" label="what would change it" />
+                <Key swatch="bg-[#E0B066]" label="reason to disagree" />
+              </div>
+            </Section>
+          )}
+
           <Section
             title="Volume chain"
             note="Each adjustment is a named multiplier applied to the baseline."
@@ -216,6 +252,15 @@ export function WhyPanel({
         </div>
       </aside>
     </div>
+  );
+}
+
+function Key({ swatch, label }: { swatch: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={`h-2 w-0.5 rounded-full ${swatch}`} aria-hidden="true" />
+      <span className="text-[10px] text-steel-400">{label}</span>
+    </span>
   );
 }
 

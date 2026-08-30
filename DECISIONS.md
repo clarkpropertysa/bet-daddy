@@ -661,3 +661,50 @@ level lose". A generous label on a long-odds parlay is how a research tool start
 flattering bad bets.
 
 Kalshi is an exchange and offers no parlays; this rates what a combination is worth.
+
+---
+
+### D33. Correction: Kalshi DOES list multi-leg tickets
+
+I previously wrote that Kalshi is an exchange and offers no parlays. That was wrong,
+and verified wrong:
+
+* the exchange status carries a dedicated **Combos** index (`exchange_index 1`,
+  active and trading);
+* `/multivariate_event_collections` returns `KXMVENFLSINGLEGAME-*` collections
+  ("What will happen in CAR Panthers at ARI Cardinals?") with `size_min: 2`;
+* their functional description is *"resolves to YES only if every associated market
+  resolves to YES"* — precisely a parlay.
+
+So the parlay generator maps onto a real tradeable product, not a hypothetical, and
+the copy has been corrected throughout. The correlation modelling matters MORE for
+this reason: single-game combos are exactly the maximally-correlated case.
+
+---
+
+### D34. Arithmetic is not an argument
+
+The Why panel showed a multiplier chain and an edge calculation. A reader cannot
+agree or disagree with "×1.056". The panel now leads with a **rationale**: ordered
+claims, each carrying the number behind it.
+
+Four kinds, deliberately given equal standing:
+
+* **driver** — what produces the projection (baseline volume, each named adjustment,
+  the market disagreement)
+* **context** — where the strike falls in the simulated distribution, what the fee takes
+* **sensitivity** — *what would change the answer*: the break-even probability, and
+  the volume assumption the whole thing rests on
+* **caveat** — reasons to disagree: a thin baseline, an unvalidated tier
+
+Two rules hold it honest. Every claim derives from a number the model actually used —
+nothing is written to sound persuasive. And the caveats sit in the same list as the
+drivers rather than in a footnote, because they are part of the argument.
+
+It is generated at PROJECTION time and stored on the signal, so the rendered
+explanation is what the model believed when it fired, not a recomputation against
+later data.
+
+The value shows most clearly on a bad signal: a smoke-run row now says "a 46.4 point
+disagreement" and "the baseline rests on only 6 games" in plain language, which makes
+the model's weakness legible without reading the chart.

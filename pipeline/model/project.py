@@ -27,6 +27,7 @@ from pipeline.model.features_for_projection import (
     load_player_inputs,
 )
 from pipeline.model.adjustments import defense_adjustment
+from pipeline.model.rationale import build_rationale
 from pipeline.model.signal import compute_edge
 from pipeline.model.simulate import (
     Adjustment,
@@ -192,6 +193,15 @@ def run(
 
             p_over = out["p_over_by_strike"][str(strike)]
             proj_id = str(uuid.uuid4())
+            # volume driver differs by market family; the rationale names it
+            volume_metric = {
+                "receiving_yards": "targets", "receptions": "targets",
+                "rushing_yards": "carries",
+                "passing_yards": "pass attempts", "passing_tds": "pass attempts",
+            }[model]
+            baseline_vol = vp.baseline
+            edge_preview = compute_edge(p_over, m["yes_ask"])
+
             divergence = abs(p_over - float(m["yes_ask"]))
             implausible = divergence > IMPLAUSIBLE_DIVERGENCE
             if implausible:
@@ -205,6 +215,27 @@ def run(
                 "divergence": round(divergence, 4),
                 "implausible": implausible,
                 "model_version": model_version,
+                # Generated HERE, not at read time, so the rendered argument is what
+                # the model believed when the signal fired.
+                "rationale": build_rationale(
+                    player_name=xr.get("full_name") or "This player",
+                    market_label=m["market_type"],
+                    strike=float(strike),
+                    side=edge_preview.side,
+                    volume_metric=volume_metric,
+                    baseline=float(baseline_vol),
+                    games=int(pi.games),
+                    adjustments=[a for a in out["explain"] if "multiplier" in a],
+                    percentiles=out["percentiles"],
+                    mean_outcome=float(out["mean"]),
+                    p_over=float(p_over),
+                    model_prob=float(edge_preview.model_prob),
+                    market_prob=float(edge_preview.market_prob),
+                    fee_cents=float(edge_preview.fee_cents),
+                    net_edge_cents=float(edge_preview.net_edge_cents),
+                    sample_n=int(edge_preview.sample_n),
+                    tier=edge_preview.tier.value,
+                ),
             }
 
             with conn.cursor() as cur:
@@ -229,7 +260,7 @@ def run(
                 )
                 n_proj += 1
 
-                edge = compute_edge(p_over, m["yes_ask"])
+                edge = edge_preview
                 cur.execute(
                     """
                     insert into "Signal"
