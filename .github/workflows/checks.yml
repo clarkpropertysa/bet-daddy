@@ -1,0 +1,42 @@
+# Runs on every push. Cheap, and it guards the one thing that is now implemented
+# twice: the edge formula exists in Python (authoritative, graded for CLV) and in
+# TypeScript (repricing the board against a live quote). A fee rate corrected in one
+# and not the other would put a number on screen that no grade will ever match.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - name: Verify known-correct values
+        run: uv run python -m pytest tests/ -q
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --prefix web
+      - name: Edge maths matches the Python it was ported from
+        run: npm run check:edge --prefix web
+      - name: Parlay correlation checks
+        run: npm run check:parlay --prefix web
+      - name: Types
+        run: npx --prefix web tsc --noEmit -p web/tsconfig.json

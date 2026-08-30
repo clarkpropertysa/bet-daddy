@@ -1,5 +1,41 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { computeEdge, pOverAtStrike } from "@/lib/edge";
+import { getLiveQuotes, type LiveQuoteBook } from "@/lib/livePrices";
+
+/** Same threshold the Python job applies. Recomputed here because a live price can
+ *  move a signal across it in either direction, and a stale flag is worse than none. */
+const IMPLAUSIBLE_DIVERGENCE = 0.5;
+
+/**
+ * Replace a row's stored price with the market's current one and recompute the edge.
+ *
+ * Only the price half is refreshed. The model half -- the simulated distribution --
+ * is left exactly as the Python job produced it, because that is what CLV grading
+ * scored and re-deriving it here would put two different models on the same screen.
+ */
+function reprice(r: BoardRow, book: LiveQuoteBook): BoardRow {
+  const q = book.quotes.get(r.marketTicker);
+  const pOver = pOverAtStrike(r.pOverByStrike, r.strike);
+  // No quote, or no stored probability at this exact strike: keep what was stored and
+  // say so. Interpolating a probability would be inventing the number the edge is
+  // built from.
+  if (!q || q.yesAsk === null || pOver === null) return { ...r, priceSource: "stored" };
+
+  const e = computeEdge(pOver, q.yesAsk);
+  return {
+    ...r,
+    side: e.side,
+    modelProb: e.modelProb,
+    marketProb: e.marketProb,
+    feeCents: e.feeCents,
+    edgeCentsNet: e.edgeCentsNet,
+    kelly: e.kelly,
+    implausible: Math.abs(e.modelProb - e.marketProb) > IMPLAUSIBLE_DIVERGENCE,
+    priceAsOf: q.fetchedAt,
+    priceSource: "live",
+  };
+}
 
 export type BoardRow = {
   signalId: string;
@@ -28,6 +64,10 @@ export type BoardRow = {
   reason: unknown;
   implausible: boolean;
   modelVersion: string;
+  /** strike -> P(over), the stored model curve. Used to reprice against a live ask. */
+  pOverByStrike?: unknown;
+  /** "live" when the ask came from the market just now, "stored" when it did not. */
+  priceSource: "live" | "stored";
 };
 
 /** Why the board is empty, taken from the last projection run rather than guessed. */
@@ -83,6 +123,7 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       l."runTs"           as "runTs",
       l."closeTime"       as "closeTime",
       l."priceAsOf"       as "priceAsOf",
+      pr."pOverByStrike"  as "pOverByStrike",
       l.reason            as reason,
       coalesce((l.reason->>'implausible')::boolean, false) as implausible,
       l."modelVersion"    as "modelVersion"
@@ -91,9 +132,16 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
     left join "Player" p on p.id = pr."playerId"
     left join "Team" t on t.id = p."teamId"
     order by l."edgeCentsNet" desc
-    limit ${limit}
   `;
-  return rows;
+
+  // Repriced BEFORE the limit is applied. Cutting to the top N on the stored edge and
+  // then repricing would rank by a number the board does not show -- a market whose
+  // price moved into a real edge would be missing entirely, which is the one case
+  // worth seeing.
+  const book = await getLiveQuotes();
+  const priced = rows.map((r) => reprice(r, book));
+  priced.sort((a, b) => b.edgeCentsNet - a.edgeCentsNet);
+  return priced.slice(0, limit);
 }
 
 /** Most recent successful run per job, for the staleness banner. */
@@ -126,6 +174,23 @@ export async function getBoardStatus(): Promise<BoardStatus | null> {
     census?: { listed?: number; quoted?: number; fresh?: number; max_price_age_mins?: number };
   };
   const c = meta.census;
+
+  // The run's census was true when the run happened, which on a throttled scheduler
+  // can be hours ago. The live book knows what is listed and quoted RIGHT NOW, so it
+  // wins where it is available -- an empty board should explain the market as it is,
+  // not as it was.
+  const book = await getLiveQuotes();
+  if (!book.error && book.seen > 0) {
+    return {
+      listed: book.seen,
+      quoted: book.quoted,
+      fresh: book.quoted,
+      maxPriceAgeMins: 0,
+      mode: "live",
+      ranAt: book.fetchedAt,
+    };
+  }
+
   if (!c) return null;
   return {
     listed: c.listed ?? 0,

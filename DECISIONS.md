@@ -1347,3 +1347,50 @@ pointing a developer at their own branch keeps working.
 Note the shape shared with the `.env.local` bug fixed the same day: **a value that is
 present under one name and absent under another fails silently, because "unset" and
 "set to nothing" are indistinguishable to code that only checks presence.**
+
+---
+
+## The model and the price move on different clocks
+
+**2026-08-30.** Requirement: the board should be as close to live as possible. The
+constraint discovered while meeting it: GitHub throttles scheduled workflows hard on a
+private repo. `archive-markets` asks for every 15 minutes and actually fires every two
+to three hours, so anything that waits for that job is hours stale by construction.
+
+Waiting was the wrong shape anyway, because the two halves of an edge do not move at
+the same speed:
+
+| half | changes when | cadence |
+|---|---|---|
+| simulated distribution | an injury, a depth chart, a usage share moves | daily |
+| the ask | someone quotes | all day |
+
+Re-running a 20,000-path Monte Carlo to learn that a price ticked a cent is absurd.
+Waiting three hours to notice is worse. So **the price is fetched at request time and
+the edge recomputed in the web app**, against the distribution the Python job already
+stored. Reads are public — no key — which is what makes it possible.
+
+The Python side stays authoritative: it is what gets STORED and graded for CLV. The
+TypeScript recomputes the same quantities from the same stored curve, so what is on
+screen matches the market as it is now.
+
+**Both sides are re-evaluated, not just the stored one.** The stored signal picked its
+side against the price at the time. A price that has moved far enough makes the OTHER
+side correct, and recomputing only the stored side would keep recommending a bet the
+market has already taken away.
+
+**Repricing happens before the limit is applied.** Cutting to the top N on the stored
+edge and repricing afterwards would rank by a number the board does not display — a
+market whose price moved *into* a real edge would be missing entirely, which is the
+one case most worth seeing.
+
+**No interpolation.** `pOverAtStrike` returns null rather than interpolating a
+probability for a strike the projection did not store. An interpolated probability
+would be an invented number, and the edge is built directly on it.
+
+**Two implementations of one formula is a liability**, so `checks.yml` pins the
+TypeScript to golden values generated from `signal.py` on every push. A fee rate
+corrected in one and not the other would show a number that no grade will ever match.
+
+The empty-board census now prefers the live book too: the run's census was true when
+the run happened, and an empty board should explain the market as it is, not as it was.

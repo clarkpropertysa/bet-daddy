@@ -10,7 +10,8 @@
     "db:generate": "prisma generate",
     "postinstall": "prisma generate",
     "check:parlay": "node --experimental-strip-types scripts/check-parlay.mjs",
-    "deploy": "vercel --prod"
+    "deploy": "vercel --prod",
+    "check:edge": "node --experimental-strip-types scripts/check-edge.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
