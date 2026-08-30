@@ -28,6 +28,12 @@ DEFENSE_MAX_SWING = 0.08
 SHORT_WEEK_SWING = 0.03
 POST_BYE_SWING = 0.02
 
+# Recent usage carries real information, but a three-game sample is noisy. The raw
+# trend is shrunk toward zero by the sample size and then capped: a player whose last
+# three games are 40% above his season rate moves the projection by at most 10%.
+USAGE_TREND_MAX_SWING = 0.10
+USAGE_TREND_FULL_WEIGHT_GAMES = 5
+
 # Which defensive split governs which market.
 MARKET_TO_DEFENSE = {
     "rec_yds": ("pass", "all"),
@@ -92,3 +98,36 @@ def rest_adjustment(days_rest: int | None, is_short_week: bool,
         return Adjustment("post_bye", 1.0 + POST_BYE_SWING,
                           f"{days_rest} days rest")
     return None
+
+
+def usage_trend_adjustment(
+    recent_mean: float | None,
+    season_mean: float | None,
+    recent_games: int,
+) -> Adjustment | None:
+    """Recent opportunity against the season rate, shrunk by sample size.
+
+    Volume is the input props are most sensitive to, and a role change shows up here
+    before it shows up anywhere else. But three games is thin, so the raw trend is
+    weighted by how many games it rests on and then capped -- an uncapped trend on a
+    two-game sample would swamp every other adjustment.
+    """
+    if not season_mean or recent_mean is None or recent_games < 2:
+        return None
+    raw = (recent_mean - season_mean) / season_mean
+    weight = min(recent_games / USAGE_TREND_FULL_WEIGHT_GAMES, 1.0)
+    # Clamp BEFORE shrinking. Shrinking first and capping after means any trend
+    # large enough to hit the cap arrives at the cap regardless of sample size, so
+    # a two-game streak moves the projection exactly as much as an eight-game one
+    # and the shrinkage silently does nothing.
+    capped = max(-USAGE_TREND_MAX_SWING, min(USAGE_TREND_MAX_SWING, raw))
+    swing = capped * weight
+    if abs(swing) < 0.005:
+        return None
+    direction = "above" if raw > 0 else "below"
+    return Adjustment(
+        name="usage_trend",
+        multiplier=round(1.0 + swing, 4),
+        detail=(f"last {recent_games} games {abs(raw):.0%} {direction} his season rate"
+                f" (shrunk to {abs(swing):.1%} on {recent_games} games)"),
+    )

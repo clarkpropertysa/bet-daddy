@@ -33,7 +33,11 @@ from pipeline.features.defense import (
     build_pass_defense_grades,
     build_rush_defense_grades,
 )
-from pipeline.model.adjustments import defense_adjustment
+from pipeline.model.adjustments import (
+    defense_adjustment,
+    rest_adjustment,
+    usage_trend_adjustment,
+)
 from pipeline.model.context import defense_detail, load_context
 from pipeline.model.anytime_td import (
     build_baselines,
@@ -125,6 +129,41 @@ def _split_matchup(teams: str) -> tuple[str, str] | None:
     return None
 
 
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"])}
+
+
+def _event_date(market_ticker: str) -> str | None:
+    """26SEP10SFLAR -> "2026-09-10", the key rest context is stored under."""
+    parts = market_ticker.split("-")
+    if len(parts) < 2:
+        return None
+    m = re.match(r"^(\d{2})([A-Z]{3})(\d{2})[A-Z]{4,8}$", parts[1])
+    if not m:
+        return None
+    yy, mon, dd = m.groups()
+    if mon not in _MONTHS:
+        return None
+    return f"20{yy}-{_MONTHS[mon]:02d}-{int(dd):02d}"
+
+
+def _rest_context(schedule_path: str, season: int) -> dict:
+    """(team, date) -> (days_rest, is_short_week, is_post_bye).
+
+    rest_adjustment existed, was documented and tested, and had never been called.
+    """
+    from pipeline.features.rest import build
+
+    tbl = pq.read_table(schedule_path)
+    r = build(tbl, season=season)
+    out = {}
+    for row in r.to_pylist():
+        out[(row["team"], str(row["game_date"]))] = (
+            row["days_rest"], bool(row["is_short_week"]), bool(row["is_post_bye"]),
+        )
+    return out
+
+
 def _opponent_of(market_ticker: str, team_code: str) -> str | None:
     """The other team in the event ticker.
 
@@ -193,6 +232,8 @@ def run(
     players_path: str | None = None,
     depth_path: str | None = None,
     injuries_path: str | None = None,
+    schedule_path: str | None = None,
+    season: int = 2026,
     model_version: str = "nfl-v1",
     mins_before_close: int = 60,
     iterations: int = 20_000,
@@ -209,6 +250,12 @@ def run(
     # than refused. Injury-driven usage vacancy is the signal Section 5.2 calls most
     # exploitable; refusing it would be the worst possible failure.
     depth = resolve_starters(depth_path, injuries_path) if depth_path else {}
+    rest_ctx = {}
+    if schedule_path:
+        try:
+            rest_ctx = _rest_context(schedule_path, season)
+        except Exception:
+            rest_ctx = {}
     td_baselines = build_baselines(pbp_path, players_path) if players_path else {}
     # graded once and reused: the rationale needs the SPECIFIC split this prop runs
     # into, not the team-level average the multiplier uses
@@ -279,10 +326,34 @@ def run(
             team_code = (xr.get("team") or "")
             opponent = _opponent_of(m["market_ticker"], team_code)
 
+            # Context is loaded BEFORE the adjustments now: recent form is a model
+            # input, not just an explanation. It was previously computed only for the
+            # rationale, so the panel described a trend the projection never applied.
+            pctx = None
+            try:
+                pctx = load_context(pbp_path, xr["gsis_id"], team_code,
+                                    m["market_type"], volume_metric, float(strike))
+                if grades and opponent:
+                    d, rk, split = defense_detail(grades[0], grades[1], opponent,
+                                                  m["market_type"], xr.get("position"))
+                    pctx.def_metric, pctx.def_rank, pctx.def_split = d, rk, split
+            except Exception:
+                pctx = None
+
             adj: list[Adjustment] = []
             if grades is not None and opponent:
                 a = defense_adjustment(opponent, m["market_type"],
                                        grades[0], grades[1])
+                if a:
+                    adj.append(a)
+            if pctx is not None:
+                a = usage_trend_adjustment(pctx.recent_mean, pctx.season_mean,
+                                           pctx.recent_games)
+                if a:
+                    adj.append(a)
+            rc = rest_ctx.get((team_code, _event_date(m["market_ticker"])))
+            if rc:
+                a = rest_adjustment(rc[0], rc[1], rc[2])
                 if a:
                     adj.append(a)
 
@@ -359,16 +430,6 @@ def run(
 
             promoted_for = depth.get(xr["gsis_id"]).promoted_for if depth else None
             game_label = _game_label(m["market_ticker"])
-            pctx = None
-            try:
-                pctx = load_context(pbp_path, xr["gsis_id"], team_code,
-                                    m["market_type"], volume_metric, float(strike))
-                if grades and opponent:
-                    d, rk, split = defense_detail(grades[0], grades[1], opponent,
-                                                  m["market_type"], xr.get("position"))
-                    pctx.def_metric, pctx.def_rank, pctx.def_split = d, rk, split
-            except Exception:
-                pctx = None
 
             reason = {
                 "explain": out["explain"],
@@ -462,6 +523,8 @@ def main():
     ap.add_argument("--players", default="data/raw/nflverse/players.parquet")
     ap.add_argument("--depth", default="data/raw/nflverse/depth_charts_2026.parquet")
     ap.add_argument("--injuries", default="data/raw/nflverse/injuries_2026.parquet")
+    ap.add_argument("--schedule", default="data/raw/nflverse/schedules.parquet")
+    ap.add_argument("--season", type=int, default=2026)
     ap.add_argument("--allow-backups", action="store_true",
                     help="off by default: a backup's prior usage describes a role he "
                          "no longer holds")
@@ -479,6 +542,8 @@ def main():
             players_path=a.players,
             depth_path=a.depth,
             injuries_path=a.injuries if Path(a.injuries).exists() else None,
+            schedule_path=a.schedule if Path(a.schedule).exists() else None,
+            season=a.season,
             model_version=a.model_version,
             mins_before_close=a.mins_before_close,
             allow_preseason=a.allow_preseason,

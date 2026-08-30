@@ -1100,3 +1100,46 @@ mistake is deleted.
 Three instances of one root cause — `SFBPURDY13`, `ARILV`, `SFLAR` — say the lesson
 plainly: **a boundary between concatenated codes can never be found positionally or by
 subtraction. It must be anchored on the known set.**
+
+---
+
+### D49. Sweeping the feature layer for the same inertness
+
+The `with_adjustments` counter caught one inert feature, so the whole feature layer
+got the same treatment: for each module, who imports it and does its output reach a
+signal.
+
+**Found dead:**
+
+| module | spec priority | status |
+|---|---|---|
+| `features/usage.py` | 5.1 "highest value, build first" | 7 tests, **imported by nobody** |
+| `features/splits.py` | 5.2 "single most exploitable signal" | 9 tests, **imported by nobody** |
+| `rest_adjustment` | 5.3 | documented, tested, **never called** |
+
+And the model used raw counts only — the *explanation* cited target share twice, the
+model zero times. The pattern is consistent: **the explanation layer had outrun the
+model it explains.**
+
+**Wired in this pass:**
+
+* `rest_adjustment`, keyed on `(team, event_date)` parsed from the ticker. 71 of 544
+  team-games qualify. It correctly does nothing for preseason (absent from
+  `schedules.parquet`) and for week-1 openers (no prior game, so `days_rest` is NULL
+  rather than zero).
+* `usage_trend_adjustment`, new: recent opportunity against the season rate, shrunk
+  by sample size and capped at ±10%. Now applied to 34 of 53 signals. Recent form was
+  previously computed for the rationale only, so the panel described a trend the
+  projection never applied.
+
+**A bug the test caught, worth recording.** The first version shrank the trend then
+capped it, so any trend large enough to reach the cap arrived at the cap regardless of
+sample size — a two-game streak moved the projection exactly as much as an eight-game
+one, and the shrinkage silently did nothing. Clamping before shrinking fixes it:
++40% over 2 games now gives ×1.04, over 5 games ×1.10.
+
+**Still dead, and honestly so:** `usage.py` (WOPR, target/air-yards share) and
+`splits.py` (with/without teammate). Both need a team-volume projection to be used
+properly — targets modelled as `team_pass_volume × target_share` rather than raw
+historical counts — which is real modelling work, not wiring. They are not claimed
+anywhere in the UI.
