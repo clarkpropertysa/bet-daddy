@@ -63,6 +63,14 @@ model Player {
   /// Official NFL CDN headshot. Stored raw; the app injects a Cloudinary sizing
   /// transform at render time -- the unsized originals are ~4MB PNGs.
   headshotUrl String?
+  /// Depth-chart standing from the latest nflverse snapshot.
+  depthPos    String?
+  depthRank   Int?
+  /// True when the player is inside the prop-relevant depth for his position
+  /// (QB1, RB1-2, WR1-3, TE1), or promoted into it by a starter's absence.
+  isStarter   Boolean  @default(false)
+  /// Set when this player was promoted because someone ahead of him is out.
+  promotedFor String?
   externalIds Json     @default("{}")   // espn, pfr, sleeper, sportradar...
   aliases     PlayerAlias[]
   source      String

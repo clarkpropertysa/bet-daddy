@@ -18,6 +18,7 @@ const NAV = [
   { href: "/", label: "Slate" },
   { href: "/board", label: "Prop Board" },
   { href: "/players", label: "Players" },
+  { href: "/parlay", label: "Parlay" },
   { href: "/track-record", label: "Track Record" },
 ];
 

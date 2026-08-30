@@ -12,7 +12,7 @@ export default async function PlayersPage() {
       <PageHeader
         index="02"
         title="Players"
-        sub="Active skill-position players on 2026 rosters, from nflverse."
+        sub="Depth-charted skill players on 2026 rosters. Starters only by default — QB1, RB1-2, WR1-3, TE1 — since the rest never draw a priceable snap. When a starter is ruled out, his backup is promoted and labelled."
       />
       {players.length === 0 ? (
         <Empty

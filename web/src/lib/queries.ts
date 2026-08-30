@@ -108,20 +108,67 @@ export type PlayerRow = {
   position: string | null;
   headshotUrl: string | null;
   team: string | null;
+  depthPos: string | null;
+  depthRank: number | null;
+  isStarter: boolean;
+  promotedFor: string | null;
 };
 
-/** Rostered skill-position players, for the player index. */
-export async function getPlayers(limit = 400): Promise<PlayerRow[]> {
+/**
+ * Depth-charted skill players. Starters first.
+ *
+ * 2,887 rostered players carry props for about 220 -- the rest never see a
+ * meaningful snap. Depth rank is what separates them.
+ */
+export async function getPlayers(limit = 1200): Promise<PlayerRow[]> {
   return prisma.$queryRaw<PlayerRow[]>`
-    select p.id, p."fullName", p.position, p."headshotUrl", t.abbrev as team
+    select p.id, p."fullName", p.position, p."headshotUrl", t.abbrev as team,
+           p."depthPos", p."depthRank", p."isStarter", p."promotedFor"
     from "Player" p
     left join "Team" t on t.id = p."teamId"
-    where p.position in ('QB','RB','WR','TE')
-      and p."teamId" is not null
-    order by
-      case p.position when 'QB' then 1 when 'RB' then 2
-                      when 'WR' then 3 else 4 end,
-      p."fullName"
+    where p."depthPos" is not null and p."teamId" is not null
+    order by p."isStarter" desc,
+      case p."depthPos" when 'QB' then 1 when 'RB' then 2
+                        when 'WR' then 3 else 4 end,
+      p."depthRank", p."fullName"
+    limit ${limit}
+  `;
+}
+
+
+/** Priced signals usable as parlay legs. */
+export async function getParlayLegs(limit = 300) {
+  return prisma.$queryRaw<
+    {
+      signalId: string; player: string; playerId: string; gameId: string;
+      team: string | null; marketType: string; strike: number | null;
+      side: string; modelProb: number; marketProb: number;
+      headshotUrl: string | null; position: string | null;
+    }[]
+  >`
+    with latest as (
+      select distinct on (s."marketTicker") s.*
+      from "Signal" s order by s."marketTicker", s."runTs" desc
+    )
+    select
+      l.id as "signalId",
+      coalesce(p."fullName", 'unresolved') as player,
+      coalesce(pr."playerId", '') as "playerId",
+      coalesce(pr."gameId", '') as "gameId",
+      t.abbrev as team,
+      pr."marketType" as "marketType",
+      nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
+      l.side as side,
+      l."modelProb"::float8 as "modelProb",
+      l."marketProb"::float8 as "marketProb",
+      p."headshotUrl" as "headshotUrl",
+      p.position as position
+    from latest l
+    join "Projection" pr on pr.id = l."projectionId"
+    left join "Player" p on p.id = pr."playerId"
+    left join "Team" t on t.id = p."teamId"
+    where coalesce((l.reason->>'implausible')::boolean, false) = false
+    order by l."edgeCentsNet" desc
     limit ${limit}
   `;
 }

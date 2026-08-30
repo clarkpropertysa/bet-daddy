@@ -6,6 +6,7 @@ import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Tier, type TierName } from "@/components/Tier";
 import { WhyPanel, type WhyRow } from "@/components/WhyPanel";
 import { edgeGlyph, pct, priceCents, signedCents } from "@/lib/format";
+import { labelFor } from "@/lib/markets";
 
 export type Row = WhyRow & {
   signalId: string;
@@ -165,7 +166,7 @@ export function PropBoard({ rows }: { rows: Row[] }) {
                     </span>
                   </span>
                 </Td>
-                <Td className="text-ink-2">{r.marketType}</Td>
+                <Td className="text-ink-2">{labelFor(r.marketType)}</Td>
                 <Td align="right">
                   {/* Which bet this is. compute_edge keeps the better side, so a
                       row can recommend NO even though the strike reads as an over. */}

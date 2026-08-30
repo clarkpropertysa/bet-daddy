@@ -216,7 +216,11 @@ def run(
                        source, "ingestedAt")
                     values (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s)
                     """,
-                    (proj_id, f"nfl:{xr['gsis_id']}", m["market_ticker"],
+                    # The EVENT ticker (26SEP10SFLAR), not the market ticker. Market
+                    # tickers are unique per strike, so storing one as gameId makes
+                    # every leg look like it is in a different game and silently
+                    # disables all same-game correlation downstream.
+                    (proj_id, f"nfl:{xr['gsis_id']}", parts[1],
                      m["market_type"], model_version, now,
                      out["mean"], out["stdev"],
                      json.dumps(out["percentiles"]),

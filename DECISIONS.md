@@ -589,3 +589,75 @@ the board would have taken the opposite bet.
 `Signal.side` is now a stored column, rendered as a badge on every board row and as
 over/under in the panel, with P(over) shown alongside on NO rows so the chart and the
 arithmetic agree.
+
+---
+
+### D30. Starters only, with injury-driven promotion
+
+2,887 rostered players carry props for about 220. The prop-relevant set is defined by
+depth-chart rank: **QB1, RB1-2, WR1-3, TE1** — 7 per team, 224 league-wide. Everyone
+else is on the depth chart but will not draw a priceable snap.
+
+Only the LATEST depth snapshot is used. The 2026 file holds 160 dated snapshots back
+to March; taking them all returns a player at every rank he has ever held.
+
+When a starter is ruled **Out or Doubtful**, the next man up is promoted and carries
+`promotedFor`, rendered as "in for <name>". A backup appearing on the board without
+explanation is indistinguishable from a bug.
+
+Promotion is wired but currently inert: `injuries_2026` is not published until the
+season starts.
+
+---
+
+### D31. Market taxonomy is shown, not implied
+
+The board now renders its own structure above the table — every market family it
+covers, grouped Passing / Rushing / Receiving / Defense, with live counts. Families
+Kalshi lists but the simulator cannot price (interceptions, longest reception,
+anytime TD, sacks) are shown **struck through** rather than hidden, because a market
+we cannot price otherwise looks identical to one that does not exist.
+
+This matters most when the board is empty, which is its state until week 1 is quoted.
+
+---
+
+### D32. Parlay legs are correlated, and the naive product flatters the ticket
+
+Multiplying leg probabilities is wrong in the direction that makes a bet look better.
+A quarterback's passing yards and his WR1's receiving yards move together.
+
+Method: a **Gaussian copula**. Each leg's marginal maps to a latent normal threshold
+via Φ⁻¹; legs get a correlation matrix; joint hit probability is the multivariate
+normal orthant probability, evaluated by Monte Carlo with a fixed seed so a ticket
+always rates the same.
+
+Correlation priors — documented, moderate, and **not fitted**, because fitting needs
+settled multi-leg outcomes the archive does not yet hold:
+
+| relationship | ρ |
+|---|---|
+| same player, same game | 0.55 |
+| same team, same game | 0.30 |
+| opposing teams, same game | −0.10 |
+| different games | 0 |
+
+Measured effect: a same-player two-leg ticket rates **0.388** against a naive product
+of 0.300 — the product is 29% too pessimistic.
+
+**Two bugs this surfaced.**
+
+1. **The correlation model was inert.** `Projection.gameId` stored the MARKET ticker,
+   which is unique per strike, so every leg looked like a different game and every ρ
+   was 0. It now stores the EVENT ticker. This failed silently while returning
+   plausible numbers — exactly the failure mode the checks now pin.
+2. **Contradictory legs were priced.** "Over 100 yards" and "under 75 yards" for the
+   same player in the same game cannot both win, but a copula sees only two marginal
+   probabilities and returned a comfortable 12%. Such pairs are now detected
+   structurally and the ticket is refused rather than rated.
+
+Confidence bands are deliberately blunt: 25–50% is "MODERATE — most tickets at this
+level lose". A generous label on a long-odds parlay is how a research tool starts
+flattering bad bets.
+
+Kalshi is an exchange and offers no parlays; this rates what a combination is worth.
