@@ -32,6 +32,10 @@ class Dataset:
     seasonal: bool
     # columns we actually depend on. drift here breaks features -> fail the run.
     required: tuple[str, ...] = field(default=())
+    # Alternative column sets that are ALSO acceptable. Upstream sometimes reshapes a
+    # dataset at a season boundary, and both shapes are then legitimately published
+    # forever. Satisfying any one set passes; satisfying none is real drift.
+    alternates: tuple[tuple[str, ...], ...] = field(default=())
 
 
 DATASETS = {
@@ -54,8 +58,17 @@ DATASETS = {
                               "roster_weekly_{season}.parquet", True,
                               ("season", "team", "position", "jersey_number", "full_name",
                                "first_name", "last_name", "gsis_id", "week")),
+    # nflverse reshaped depth charts at the 2025 boundary. 2024 and earlier publish
+    # club_code/depth_position/full_name; 2025 onward publish team/player_name/
+    # pos_abb/pos_rank. Both are still served, so requiring only the new shape failed
+    # the ENTIRE daily workflow on a 2024 file -- taking reference sync, depth sync,
+    # context, projections and grading down with it, every day, silently.
     "depth_charts": Dataset("depth_charts", "depth_charts", "depth_charts_{season}.parquet", True,
-                            ("team", "player_name", "gsis_id", "pos_abb", "pos_rank")),
+                            ("team", "player_name", "gsis_id", "pos_abb", "pos_rank"),
+                            alternates=(
+                                ("club_code", "full_name", "gsis_id", "depth_position",
+                                 "depth_team"),
+                            )),
     # Comprehensive cross-source ID crosswalk. Maps pfr_id -> gsis_id at 99.7%
     # coverage on 2025 snap counts; weekly rosters only manage 65.9%.
     "players": Dataset("players", "players", "players.parquet", False,
@@ -103,11 +116,18 @@ def fetch(name: str, season: int | None = None, force: bool = False) -> pa.Table
         dest.write_bytes(r.content)
 
     df = pq.read_table(dest)
-    missing = [c for c in ds.required if c not in df.column_names]
-    if missing:
+    cols = set(df.column_names)
+    accepted = [ds.required, *ds.alternates]
+    if not any(set(want) <= cols for want in accepted):
+        missing = [c for c in ds.required if c not in cols]
+        alt_note = (
+            f" Also tried {len(ds.alternates)} known alternative schema(s)."
+            if ds.alternates else ""
+        )
         raise SchemaDriftError(
-            f"{name}{suffix}: nflverse schema drift -- missing required columns {missing}. "
-            f"Present: {sorted(df.column_names)[:40]}... "
+            f"{name}{suffix}: nflverse schema drift -- missing required columns {missing}."
+            f"{alt_note} "
+            f"Present: {sorted(cols)[:40]}... "
             f"Update DATASETS[{name!r}].required and any dependent feature code."
         )
     return df

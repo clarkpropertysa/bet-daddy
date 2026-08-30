@@ -23,17 +23,38 @@ export type BoardRow = {
   tier: "UNVALIDATED" | "PROVISIONAL" | "VALIDATED";
   sampleN: number;
   runTs: Date;
+  closeTime: Date | null;
+  priceAsOf: Date | null;
   reason: unknown;
   implausible: boolean;
   modelVersion: string;
 };
 
-/** Latest signal per market, newest first. One row per market, not per run. */
+/** Why the board is empty, taken from the last projection run rather than guessed. */
+export type BoardStatus = {
+  listed: number;
+  quoted: number;
+  fresh: number;
+  maxPriceAgeMins: number;
+  mode: string | null;
+  ranAt: Date | null;
+};
+
+/**
+ * Latest signal per market for markets that have NOT closed yet.
+ *
+ * The close-time filter is the whole point. Without it the board serves the most
+ * recent run per ticker forever, which means a game that finished last month sits at
+ * the top of the board looking like a live recommendation. A null closeTime fails the
+ * comparison and drops out, which is the correct treatment for rows written before
+ * the live board existed -- they were all settled backtest signals.
+ */
 export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]> {
   const rows = await prisma.$queryRaw<BoardRow[]>`
     with latest as (
       select distinct on (s."marketTicker") s.*
       from "Signal" s
+      where s."closeTime" > now()
       order by s."marketTicker", s."runTs" desc
     )
     select
@@ -60,6 +81,8 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       l.tier::text        as tier,
       l."sampleN"         as "sampleN",
       l."runTs"           as "runTs",
+      l."closeTime"       as "closeTime",
+      l."priceAsOf"       as "priceAsOf",
       l.reason            as reason,
       coalesce((l.reason->>'implausible')::boolean, false) as implausible,
       l."modelVersion"    as "modelVersion"
@@ -82,6 +105,36 @@ export async function getJobHealth() {
     select: { job: true, startedAt: true, finishedAt: true, rowsWritten: true },
   });
   return rows;
+}
+
+/**
+ * What the last projection run saw. An empty board has three unrelated causes --
+ * nothing listed for the upcoming week, listed but unquoted, or quotes gone stale
+ * because the archiver stopped -- and they are indistinguishable to someone looking
+ * at a blank page. The run already counted them, so the UI reads the count instead
+ * of inventing an explanation.
+ */
+export async function getBoardStatus(): Promise<BoardStatus | null> {
+  const run = await prisma.pipelineRun.findFirst({
+    where: { job: "projection", status: "ok" },
+    orderBy: { startedAt: "desc" },
+    select: { meta: true, startedAt: true },
+  });
+  if (!run) return null;
+  const meta = (run.meta ?? {}) as {
+    mode?: string;
+    census?: { listed?: number; quoted?: number; fresh?: number; max_price_age_mins?: number };
+  };
+  const c = meta.census;
+  if (!c) return null;
+  return {
+    listed: c.listed ?? 0,
+    quoted: c.quoted ?? 0,
+    fresh: c.fresh ?? 0,
+    maxPriceAgeMins: c.max_price_age_mins ?? 0,
+    mode: meta.mode ?? null,
+    ranAt: run.startedAt,
+  };
 }
 
 export async function getTrackRecord() {
@@ -157,7 +210,8 @@ export async function getParlayLegs(limit = 300) {
   >`
     with latest as (
       select distinct on (s."marketTicker") s.*
-      from "Signal" s order by s."marketTicker", s."runTs" desc
+      from "Signal" s where s."closeTime" > now()
+      order by s."marketTicker", s."runTs" desc
     )
     select
       l.id as "signalId",
@@ -241,9 +295,12 @@ export async function getNextSlate(): Promise<SlateGame[]> {
       coalesce(ac."isShortWeek", false) as "awayShortWeek",
       coalesce(hc."isPostBye", false) as "homePostBye",
       coalesce(ac."isPostBye", false) as "awayPostBye",
-      (select count(*) from "Signal" s
+      -- distinct on the TICKER, and open markets only. count(*) counted one row
+      -- per run, so the Slate promised three times as many props as the board
+      -- could show after three runs, and kept counting games already played.
+      (select count(distinct s."marketTicker") from "Signal" s
         join "Projection" p on p.id = s."projectionId"
-        where p."gameId" = g.id)::int as "signalCount"
+        where p."gameId" = g.id and s."closeTime" > now())::int as "signalCount"
     -- CROSS JOIN, not a comma: with "Game" g, next_week nw the following JOINs
     -- bind to next_week rather than to g, and the query fails to resolve g.
     from "Game" g
@@ -265,7 +322,8 @@ export async function getTopEdges(limit = 6) {
   >`
     with latest as (
       select distinct on (s."marketTicker") s.*
-      from "Signal" s order by s."marketTicker", s."runTs" desc
+      from "Signal" s where s."closeTime" > now()
+      order by s."marketTicker", s."runTs" desc
     )
     select coalesce(p."fullName",'unresolved') as player,
            pr."marketType" as "marketType",

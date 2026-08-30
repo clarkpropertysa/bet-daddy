@@ -19,10 +19,25 @@ jobs:
           enable-cache: true
       - run: uv sync --all-extras
 
+      # Cached so a repeating job does not re-download 20MB of play-by-play every
+      # run. Keyed on the ingest module so a schema change busts it.
+      - name: Cache nflverse parquet
+        uses: actions/cache@v4
+        with:
+          path: data/raw/nflverse
+          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-${{ github.run_id }}
+          restore-keys: |
+            nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-
+
       - name: Ingest nflverse release parquet
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: uv run python -m pipeline.ingest.nflverse --seasons 2024,2025,2026
+        run: |
+          uv run python -m pipeline.ingest.nflverse --seasons 2024,2025,2026
+          # See project-live.yml: these three are required downstream and are not in
+          # the default dataset list.
+          uv run python -m pipeline.ingest.nflverse \
+            --datasets pbp,players,teams --seasons 2025,2026
 
       # Fails the run on genuine schema drift, not on a season that has not started.
       - name: Sync reference, depth and schedule context into Neon
@@ -33,11 +48,17 @@ jobs:
           uv run python -m pipeline.ingest.depth --season 2026
           uv run python -m pipeline.ingest.sync_context --season 2026 --ratings-pbp data/raw/nflverse/pbp_2025.parquet
 
-      - name: Run projections
+      # Settled mode only. This run exists to grow the CLV/calibration sample from
+      # markets that have already resolved; it is deduplicated by market ticker, so
+      # running it daily does not count one decision thirty times. The BOARD is fed
+      # by the separate project-live workflow, which runs on the market's cadence
+      # rather than nflverse's.
+      - name: Extend the backtest sample on settled markets
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           uv run python -m pipeline.model.project \
+            --mode settled \
             --depth data/raw/nflverse/depth_charts_2026.parquet || true
 
       - name: Grade emitted signals on CLV and settlement

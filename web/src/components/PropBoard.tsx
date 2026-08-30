@@ -24,7 +24,62 @@ export type Row = WhyRow & {
 
 type SortKey = "edge" | "player" | "model" | "ask" | "kelly";
 
-export function PropBoard({ rows }: { rows: Row[] }) {
+export type BoardStatus = {
+  listed: number;
+  quoted: number;
+  fresh: number;
+  maxPriceAgeMins: number;
+  mode: string | null;
+  ranAt: Date | string | null;
+};
+
+/**
+ * An empty board has several unrelated causes and they are indistinguishable to
+ * someone staring at a blank page. Each one below is a different thing to do about
+ * it -- wait, wait longer, or go fix the archiver -- so each gets its own words. The
+ * counts come from what the projection run actually saw, never from a guess.
+ */
+function emptyCopy(status?: BoardStatus | null): {
+  title: string;
+  source: string;
+  hint: string;
+} {
+  if (!status) {
+    return {
+      title: "No signals yet",
+      source: "Signal (Neon)",
+      hint: "No projection run has recorded what it saw. Once the projection job runs, this page explains exactly why it is empty rather than showing nothing.",
+    };
+  }
+  if (status.listed === 0) {
+    return {
+      title: "No upcoming markets listed",
+      source: "market archive",
+      hint: "The archive holds no markets that are still open. Markets for a given week are usually listed several days out; until then there is nothing to project.",
+    };
+  }
+  if (status.quoted === 0) {
+    return {
+      title: `${status.listed} markets listed, none quoted yet`,
+      source: "market archive",
+      hint: "The upcoming markets exist but nobody is making a price on them yet — no bid, no ask, no open interest. An edge is the distance between our number and a real price, so with no price there is no edge to report. This is the market's state, not a failure here. Quotes typically appear as the game approaches.",
+    };
+  }
+  if (status.fresh === 0) {
+    return {
+      title: "Every quote is stale",
+      source: "archive-markets job",
+      hint: `${status.quoted} markets are quoted, but the newest price on hand is older than the ${status.maxPriceAgeMins}-minute limit. Rather than present an old price as current, the board shows nothing. The snapshot job has most likely stopped — check its run history.`,
+    };
+  }
+  return {
+    title: "Every market was refused",
+    source: "projection gates",
+    hint: `${status.fresh} markets had a fresh price, but all of them were refused — a backup rather than a starter, too little usage history, or a market family that is not modelled. The run's skip counts say which.`,
+  };
+}
+
+export function PropBoard({ rows, status }: { rows: Row[]; status?: BoardStatus | null }) {
   const [market, setMarket] = useState("all");
   const [minEdge, setMinEdge] = useState(0);
   // OFF by default: defaulting this on would hide every unvalidated signal and
@@ -72,13 +127,7 @@ export function PropBoard({ rows }: { rows: Row[] }) {
   };
 
   if (rows.length === 0) {
-    return (
-      <Empty
-        title="No signals yet"
-        source="Signal (Neon)"
-        hint="Signals appear once the projection job runs against archived market prices. The archiver is collecting; no projections have been written."
-      />
-    );
+    return <Empty {...emptyCopy(status)} />;
   }
 
   return (

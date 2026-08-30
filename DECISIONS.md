@@ -1196,3 +1196,94 @@ split rather than the sum, since summing double-counts the confounding.
 
 Coverage is reported as `share_based=N` for the same reason as `with_adjustments`: a
 modelling layer that stops being reached looks identical to one that is working.
+
+---
+
+## The board could only ever show games that had already finished
+
+**2026-08-30.** Ten days before Week 1, the board was empty. Not because of missing
+data — because of one line.
+
+`_entry_prices` selected `where rn = 1 and result in ('yes','no')`. That is a correct
+filter for a *backtest*: you can only grade a decision against a market that settled.
+It is fatal for live serving, because an open market has no result yet. One query was
+doing both jobs, and the backtest half won. Every signal this project ever produced
+came from a game that was already over. The Prop Board was, structurally, a replay.
+
+**The fix is two queries, not a flag.** They want opposite things and saying so in the
+type system is the point:
+
+| | entry price | ordering | filter |
+|---|---|---|---|
+| `_settled_prices` | the ask at T-minus-N | `mins_to_close asc` | `result in ('yes','no')` |
+| `_open_prices` | the freshest quote there is | `ts desc` | `close_time > now()` |
+
+The settled path must not see past its horizon; the live path wants the newest tick
+available. A shared query cannot honour both constraints, and the attempt silently
+resolved in favour of whichever filter was more restrictive.
+
+`mins_to_close` is recomputed against the clock in the live path rather than read from
+the snapshot. The stored value was true when the snapshot was taken and is wrong by
+exactly the snapshot's age.
+
+**`featureAsOf` was storing the wrong instant.** It is the point-in-time guard — no
+feature may postdate it — and it was being set to `close_time`. For an open market
+that is in the future, so the guard permitted every feature up to kickoff, which is
+precisely the lookahead it exists to prevent. It now stores the price timestamp, the
+real information boundary, in both modes.
+
+**Two new columns, both nullable on purpose.** `Signal.closeTime` lets the board drop
+a market the moment its game starts; without it the only available ordering is "most
+recent run for this ticker", which happily serves a game from last month forever.
+`Signal.priceAsOf` lets the UI say how old a quote is instead of implying it is
+current. Nullable because every row written before this change was a settled backtest
+signal, and `closeTime > now()` is false for NULL — so they drop out of the board with
+no backfill and no migration risk.
+
+**Settled mode is now deduplicated by ticker.** A settled market's entry price never
+changes, so re-running the backtest re-emitted the same signal daily and the Track
+Record would have counted one decision thirty times. Live mode re-emits by design —
+the board wants the new quote.
+
+### An empty board is now required to say why
+
+Three unrelated causes look identical to someone staring at a blank page, and each
+demands a different response: wait, wait longer, or go fix the archiver. The run
+counts them (`listed` / `quoted` / `fresh`) and the count travels in the run record,
+so the UI reads what happened instead of inventing an explanation. Today it renders
+"291 markets listed, none quoted yet" — which is true, verified against the live API:
+every open NFL market, game winners included, has no bid, no ask and an empty
+orderbook ten days out.
+
+### Three things that meant CI could never have worked anyway
+
+Found while verifying the above, each independently fatal:
+
+1. **`ingest-nflverse` had been failing every scheduled run.** nflverse reshaped depth
+   charts at the 2025 boundary — 2024 publishes `club_code`/`depth_position`, 2025+
+   publish `team`/`player_name`/`pos_abb`/`pos_rank`. Both are still served. The drift
+   check knew only the new shape, so a 2024 file failed it and took reference sync,
+   depth sync, context, projections and grading down with it, daily, since the day it
+   was scheduled. Datasets can now declare `alternates`: satisfying any known schema
+   passes, satisfying none is real drift. The check keeps its teeth.
+
+2. **`pbp`, `players` and `teams` are not in the ingest default dataset list** and
+   every one is required downstream — ratings and volume, the ID crosswalk, and team
+   branding respectively. CI ingested "successfully" and then had no play-by-play to
+   project from. They are now fetched explicitly.
+
+3. **Nothing ever read the market archive back.** Blob storage is written by the
+   archiver and read by nobody, and a CI checkout has an empty `data/`. A live run in
+   CI would have found no snapshots at all. Live mode now takes its own snapshot
+   (`--refresh`) before pricing, which also means the board is priced off a quote
+   seconds old rather than whatever happened to be lying on disk.
+
+**Cadence is a request, not a promise.** `archive-markets` asks for every 15 minutes
+and actually fires roughly every 2–3 hours — GitHub throttles scheduled workflows hard
+on a private repo. `project-live` is written as hourly and should be read as an upper
+bound. This is why the board's staleness indicator now reports the age of the *price
+being shown* rather than the age of a job: a job can succeed while finding nothing,
+and a price can be current while some unrelated job is behind. The Slate reports
+`sync_context` instead, because the Slate is built from schedule and rest, not prices,
+and pointing it at the market archiver made it go red on a page that was perfectly
+current.

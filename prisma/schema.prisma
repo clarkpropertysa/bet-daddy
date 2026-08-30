@@ -249,11 +249,20 @@ model Signal {
   reason        Json     // ordered named multipliers -> Why panel
   modelVersion  String
   featureAsOf   DateTime
+  /// When the market closes. The board filters on this so a signal disappears the
+  /// moment its game starts, instead of being served forever because it happens to
+  /// be the most recent run for that ticker. Nullable: rows written before the live
+  /// board existed have no close time, and a null must not be served.
+  closeTime     DateTime?
+  /// Timestamp of the snapshot this price came from, so the UI can show how old the
+  /// quote is rather than implying it is current.
+  priceAsOf     DateTime?
   result        SignalResult?
   source        String
   ingestedAt    DateTime @default(now())
   @@index([marketTicker, runTs])
   @@index([tier, runTs])
+  @@index([closeTime])
 }
 
 model SignalResult {

@@ -86,8 +86,17 @@ MAX_TRADEABLE_ASK = 0.99
 IMPLAUSIBLE_DIVERGENCE = 0.50
 
 
-def _entry_prices(archive_glob: str, mins_before_close: int) -> list[dict]:
-    """One row per market: the ask at T-minus-N and the settled result.
+# Backtesting and live serving need DIFFERENT prices, and conflating them is why the
+# board was empty for its whole life. A settled market's entry price must be pinned to
+# a fixed horizon so it cannot borrow information from after that point. An open
+# market's price is simply the freshest quote there is. One query cannot serve both:
+# the settled path filters on `result in ('yes','no')`, and an open market has no
+# result yet -- so a shared query silently restricted the live board to games that
+# were already over.
+
+
+def _settled_prices(archive_glob: str, mins_before_close: int) -> list[dict]:
+    """Backtest entry prices: the ask at T-minus-N for markets that have settled.
 
     Only snapshots at or before the horizon are eligible, so the entry price cannot
     borrow information from after the reconstruction point.
@@ -106,9 +115,68 @@ def _entry_prices(archive_glob: str, mins_before_close: int) -> list[dict]:
               and yes_ask <= {MAX_TRADEABLE_ASK}
         )
         select market_ticker, series_ticker, market_type, strike, yes_ask, result,
-               close_time, mins_to_close
+               close_time, mins_to_close, ts as price_ts
         from ranked where rn = 1 and result in ('yes', 'no')
     """).to_arrow_table().to_pylist()
+
+
+def _open_prices(archive_glob: str, max_price_age_mins: int) -> list[dict]:
+    """Live board prices: the most recent quote for a market that has not closed.
+
+    `mins_to_close` is recomputed against the clock rather than read from the
+    snapshot, because the archived value was true when the snapshot was taken and is
+    stale by exactly the age of that snapshot.
+    """
+    con = duckdb.connect()
+    return con.execute(f"""
+        with ranked as (
+            select *,
+                   row_number() over (
+                       partition by market_ticker order by ts desc
+                   ) rn
+            from read_parquet('{archive_glob}')
+            where result is null
+              and close_time > now()
+              and yes_ask is not null
+              and yes_ask >= {MIN_TRADEABLE_ASK}
+              and yes_ask <= {MAX_TRADEABLE_ASK}
+        )
+        select market_ticker, series_ticker, market_type, strike, yes_ask, result,
+               close_time,
+               cast(date_diff('minute', now(), close_time) as bigint) as mins_to_close,
+               ts as price_ts
+        from ranked
+        where rn = 1
+          and date_diff('minute', ts, now()) <= {int(max_price_age_mins)}
+    """).to_arrow_table().to_pylist()
+
+
+def open_market_census(archive_glob: str, max_price_age_mins: int) -> dict:
+    """Why the live board is empty, counted rather than guessed.
+
+    An empty board has three very different causes -- no upcoming markets listed,
+    markets listed but nobody quoting them, or quotes that have gone stale because the
+    archiver stopped. They look identical to a user and demand different responses, so
+    the UI is given the counts instead of a blank page.
+    """
+    con = duckdb.connect()
+    listed, quoted = con.execute(f"""
+        select
+          count(distinct market_ticker) as listed,
+          count(distinct case
+                  when yes_ask is not null
+                   and yes_ask >= {MIN_TRADEABLE_ASK}
+                   and yes_ask <= {MAX_TRADEABLE_ASK}
+                  then market_ticker end) as quoted
+        from read_parquet('{archive_glob}')
+        where result is null and close_time > now()
+    """).fetchone()
+    return {
+        "listed": int(listed or 0),
+        "quoted": int(quoted or 0),
+        "fresh": len(_open_prices(archive_glob, max_price_age_mins)),
+        "max_price_age_mins": int(max_price_age_mins),
+    }
 
 
 # Preseason snap distribution bears no relation to the regular season -- starters
@@ -249,10 +317,44 @@ def run(
     seed: int = 20260909,
     allow_preseason: bool = False,
     allow_backups: bool = False,
+    mode: str = "live",
+    max_price_age_mins: int = 180,
+    refresh: bool = False,
 ) -> dict:
-    markets = _entry_prices(archive_glob, mins_before_close)
+    if mode not in ("live", "settled"):
+        raise ValueError(f"mode must be 'live' or 'settled', got {mode!r}")
+
+    if mode == "settled":
+        markets = _settled_prices(archive_glob, mins_before_close)
+        census = None
+    else:
+        if refresh:
+            # Take a snapshot before pricing rather than hoping one is lying around.
+            # CI checks out a bare repo -- the archive directory is EMPTY there, so a
+            # live run that only reads the archive finds nothing and reports an empty
+            # board that looks exactly like an unquoted market. This also means the
+            # board is priced off a quote seconds old instead of hours.
+            from pipeline.ingest.kalshi_archiver import snapshot
+            # Recorded as an archiver run because that is what it is -- it writes the
+            # same parquet to the same archive and the same blob. Without the record
+            # the staleness banner reports the last standalone archiver run and calls
+            # the data old while this job is refreshing it every hour.
+            with db.track("kalshi_archiver") as snap_run:
+                snap = snapshot(sports=("nfl",), with_orderbook=False, adaptive=False)
+                snap_run["rows"] = snap.get("rows", 0)
+                snap_run["meta"] = {"quoted": snap.get("quoted", 0),
+                                    "via": "project --refresh",
+                                    "blob": bool(snap.get("blob_url")),
+                                    "errors": len(snap.get("errors") or [])}
+            print(f"refreshed: rows={snap.get('rows', 0)} "
+                  f"quoted={snap.get('quoted', 0)} path={snap.get('path')}")
+        markets = _open_prices(archive_glob, max_price_age_mins)
+        census = open_market_census(archive_glob, max_price_age_mins)
+
     if not markets:
-        return {"markets": 0, "projections": 0, "signals": 0, "skipped": {}}
+        return {"markets": 0, "projections": 0, "signals": 0, "skipped": {},
+                "mode": mode, "census": census,
+                "with_adjustments": 0, "share_based_baselines": 0}
 
     roster = pq.read_table(roster_path)
     # Same resolver the depth sync uses, so a promoted backup is projected rather
@@ -326,7 +428,26 @@ def run(
         skipped[reason] = skipped.get(reason, 0) + 1
 
     with psycopg.connect(config.DATABASE_URL) as conn:
+        # A settled market's entry price never changes, so re-running the backtest
+        # would emit the same signal again every day and the Track Record would count
+        # one decision as thirty. Live prices DO change, so live mode re-emits by
+        # design -- the board wants the newest quote.
+        already: set[str] = set()
+        if mode == "settled":
+            with conn.cursor() as cur:
+                cur.execute(
+                    'select distinct "marketTicker" from "Signal" '
+                    'where "modelVersion" = %s',
+                    (model_version,),
+                )
+                already = {r[0] for r in cur.fetchall()}
+
         for m in markets:
+            # Both selectors return the snapshot this price came from. It is the
+            # information boundary for the decision and the age the board renders.
+            price_as_of = m.get("price_ts") or now
+            if m["market_ticker"] in already:
+                skip("already_emitted"); continue
             parts = m["market_ticker"].split("-")
             if len(parts) < 3:
                 skip("unparseable_ticker"); continue
@@ -570,7 +691,12 @@ def run(
                      out["mean"], out["stdev"],
                      json.dumps(out["percentiles"]),
                      json.dumps(out["p_over_by_strike"]),
-                     m["close_time"], "model", now),
+                     # The price timestamp, NOT the market close. featureAsOf is the
+                     # point-in-time guard -- no feature may postdate it -- and
+                     # close_time is in the FUTURE for an open market, which made the
+                     # guard permit everything up to kickoff. The snapshot we priced
+                     # off is the real information boundary.
+                     price_as_of, "model", now),
                 )
                 n_proj += 1
 
@@ -581,20 +707,25 @@ def run(
                       (id, "projectionId", "marketTicker", "runTs", side, "modelProb",
                        "marketProb", "feeCents", "edgeCentsNet", "kellyFraction",
                        tier, "sampleN", reason, "modelVersion", "featureAsOf",
-                       source, "ingestedAt")
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s)
+                       "closeTime", "priceAsOf", source, "ingestedAt")
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
                     """,
                     (str(uuid.uuid4()), proj_id, m["market_ticker"], now,
                      edge.side,
                      edge.model_prob, edge.market_prob, edge.fee_cents,
                      edge.net_edge_cents, edge.kelly_fraction, edge.tier.value,
                      edge.sample_n, json.dumps(reason), model_version,
-                     m["close_time"], "model", now),
+                     price_as_of,
+                     # Stored so the board can drop a market the moment it closes.
+                     # Without it the only ordering available is "most recent run",
+                     # which happily serves a game that finished last month.
+                     m["close_time"], price_as_of, "model", now),
                 )
                 n_sig += 1
 
     return {"markets": len(markets), "projections": n_proj,
             "signals": n_sig, "skipped": skipped,
+            "mode": mode, "census": census,
             "with_adjustments": n_with_adj,
             "share_based_baselines": n_share_based}
 
@@ -616,7 +747,18 @@ def main():
     ap.add_argument("--model-version", default="nfl-v1")
     ap.add_argument("--allow-preseason", action="store_true",
                     help="off by default: preseason usage does not predict anything")
-    ap.add_argument("--mins-before-close", type=int, default=60)
+    ap.add_argument("--mins-before-close", type=int, default=60,
+                    help="settled mode only: the entry-price horizon")
+    ap.add_argument("--mode", choices=("live", "settled"), default="live",
+                    help="live: price open markets off the freshest quote, for the "
+                         "board. settled: reconstruct an entry price at a fixed "
+                         "horizon on markets that already resolved, for CLV.")
+    ap.add_argument("--max-price-age", type=int, default=180,
+                    help="live mode only: refuse a quote older than this many "
+                         "minutes rather than present a stale price as current")
+    ap.add_argument("--refresh", action="store_true",
+                    help="live mode: snapshot Kalshi before pricing. Required in CI, "
+                         "where the archive directory starts empty.")
     a = ap.parse_args()
 
     with db.track("projection") as run_state:
@@ -634,13 +776,30 @@ def main():
             mins_before_close=a.mins_before_close,
             allow_preseason=a.allow_preseason,
             allow_backups=a.allow_backups,
+            mode=a.mode,
+            max_price_age_mins=a.max_price_age,
+            refresh=a.refresh,
         )
         run_state["rows"] = r["signals"]
-        run_state["meta"] = {"skipped": r["skipped"], "markets": r["markets"]}
+        # The census travels with the run so the UI can explain an empty board from
+        # the record instead of guessing. Section 12: never serve silence.
+        run_state["meta"] = {"skipped": r["skipped"], "markets": r["markets"],
+                             "mode": r.get("mode"), "census": r.get("census")}
     adj_n = r.get("with_adjustments", 0)
-    print(f"markets={r['markets']} projections={r['projections']} "
-          f"signals={r['signals']} with_adjustments={adj_n} "
-          f"share_based={r.get('share_based_baselines', 0)}")
+    print(f"mode={r.get('mode')} markets={r['markets']} "
+          f"projections={r['projections']} signals={r['signals']} "
+          f"with_adjustments={adj_n} share_based={r.get('share_based_baselines', 0)}")
+    census = r.get("census")
+    if census:
+        print(f"open markets: listed={census['listed']} quoted={census['quoted']} "
+              f"fresh={census['fresh']} (max age {census['max_price_age_mins']}m)")
+        if census["listed"] and not census["quoted"]:
+            print("  NOTE: upcoming markets are listed but nobody is quoting them "
+                  "yet. There is no price to have an edge against; this is the "
+                  "market's state, not a pipeline failure.")
+        elif census["quoted"] and not census["fresh"]:
+            print("  WARNING: every quote is older than the freshness limit. The "
+                  "archiver has probably stopped -- check the archive-markets job.")
     if r["signals"] and adj_n == 0:
         print("  WARNING: no signal carries an adjustment. The matchup layer is "
               "inert -- check that grades loaded and opponents resolved.")

@@ -29,9 +29,14 @@ export default async function SlatePage() {
         title="Slate"
         sub="What is worth looking at, before any individual prop: who plays, on what rest, in what conditions, and how much scoring the market expects."
         right={
+          /* The Slate is built from schedule, rest and team context, not prices.
+             Reporting the market archiver's age here answered a question this page
+             does not ask, and went red on a page that was perfectly current. The
+             context sync runs daily, so the threshold is a day and a bit. */
           <StaleBanner
-            lastRun={health.find((h) => h.job === "kalshi_archiver")?.startedAt ?? null}
-            job="Archiver"
+            lastRun={health.find((h) => h.job === "sync_context")?.startedAt ?? null}
+            job="Game context"
+            maxMins={60 * 30}
           />
         }
       />

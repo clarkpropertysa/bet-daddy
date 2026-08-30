@@ -1,0 +1,64 @@
+# Feeds the board. Separate from ingest-nflverse on purpose: nflverse publishes
+# weekly, but a market price moves all day, and a board priced off a once-a-day
+# quote is a board showing yesterday's market. This job takes its own fresh
+# snapshot and reprices, so what the board shows is minutes old, not hours.
+name: project-live
+
+on:
+  schedule:
+    # Offset from the round hour: GitHub queues everyone's :00 crons together and
+    # sheds the overflow. Note that on a private repo the scheduler throttles hard
+    # regardless of what is written here -- archive-markets asks for every 15
+    # minutes and actually fires roughly every 2-3 hours. Treat the cron as an
+    # upper bound on frequency, never a guarantee, and read priceAsOf on the board
+    # for what is actually true.
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+# Two repricing runs overlapping would race each other to the same tickers.
+concurrency:
+  group: project-live
+  cancel-in-progress: false
+
+jobs:
+  project:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+
+      # Cached so a repeating job does not re-download 20MB of play-by-play every
+      # run. Keyed on the ingest module so a schema change busts it.
+      - name: Cache nflverse parquet
+        uses: actions/cache@v4
+        with:
+          path: data/raw/nflverse
+          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-${{ github.run_id }}
+          restore-keys: |
+            nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-
+
+      - name: Fetch the parquet the projection reads
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          uv run python -m pipeline.ingest.nflverse --seasons 2025,2026
+          # pbp, players and teams are NOT in the default dataset list, and every one
+          # of them is required downstream: pbp drives team ratings and volume,
+          # players is the ID crosswalk, teams carries branding. Without this line CI
+          # ingested successfully and then failed to project, every time.
+          uv run python -m pipeline.ingest.nflverse \
+            --datasets pbp,players,teams --seasons 2025,2026
+
+      - name: Snapshot the market and reprice the board
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: |
+          uv run python -m pipeline.model.project \
+            --mode live \
+            --refresh \
+            --depth data/raw/nflverse/depth_charts_2026.parquet
