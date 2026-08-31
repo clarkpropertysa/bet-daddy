@@ -54,14 +54,34 @@ def latest_depth(depth_path: str) -> list[tuple]:
     """).fetchall()
 
 
-def injured_out(injuries_path: str | None) -> set[str]:
+def injured_out(
+    injuries_path: str | None, week: int | None = None, season: int | None = None
+) -> set[str]:
+    """Players designated Out or Doubtful FOR A GIVEN WEEK.
+
+    The week filter is not optional in practice. Without it this returned every player
+    ever listed Out across the whole season file, and an injury report accumulates:
+    726 distinct players in 2025 against 48 in week 1 and 108 in week 18. By late
+    season 186 skill players would have been permanently benched and their backups
+    promoted onto the board in their place, with nothing raised -- the projection skips
+    non-starters silently.
+
+    `week=None` keeps the old cumulative behaviour and is retained only for callers
+    that genuinely want "anyone hurt at any point"; it is the wrong default for a
+    projection and every production caller passes a week.
+    """
     if not injuries_path:
         return set()
+    clauses = [f"report_status in {OUT_STATUSES}", "gsis_id is not null"]
+    if week is not None:
+        clauses.append(f"week = {int(week)}")
+    if season is not None:
+        clauses.append(f"season = {int(season)}")
     try:
         return {
             r[0] for r in duckdb.connect().execute(
                 f"""select distinct gsis_id from read_parquet('{injuries_path}')
-                    where report_status in {OUT_STATUSES} and gsis_id is not null"""
+                    where {' and '.join(clauses)}"""
             ).fetchall()
         }
     except Exception:
@@ -69,11 +89,18 @@ def injured_out(injuries_path: str | None) -> set[str]:
 
 
 def resolve_starters(
-    depth_path: str, injuries_path: str | None = None
+    depth_path: str,
+    injuries_path: str | None = None,
+    week: int | None = None,
+    season: int | None = None,
 ) -> dict[str, Starter]:
-    """gsis_id -> Starter, with backups promoted into vacated slots."""
+    """gsis_id -> Starter, with backups promoted into vacated slots.
+
+    `week` scopes the injury report. Callers projecting a specific game must pass it;
+    see injured_out for what happens when they do not.
+    """
     rows = latest_depth(depth_path)
-    out_ids = injured_out(injuries_path)
+    out_ids = injured_out(injuries_path, week=week, season=season)
 
     by_slot: dict[tuple[str, str], list[tuple[int, str, str]]] = {}
     for team, gsis, name, pos, rank in rows:

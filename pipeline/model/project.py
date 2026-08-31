@@ -188,6 +188,19 @@ _TEAM_CODES = tickers.TEAM_CODES
 PRESEASON_MONTHS = tickers.PRESEASON_MONTHS
 
 
+def _week_index(schedule_path: str, season: int) -> dict[str, int]:
+    """game date -> week, so an injury report can be read as of the right week."""
+    try:
+        rows = duckdb.connect().execute(f"""
+            select distinct cast(gameday as varchar), week
+            from read_parquet('{schedule_path}')
+            where season = {int(season)} and gameday is not null
+        """).fetchall()
+    except Exception:
+        return {}
+    return {d: int(w) for d, w in rows}
+
+
 def _rest_context(schedule_path: str, season: int) -> dict:
     """(team, date) -> (days_rest, is_short_week, is_post_bye).
 
@@ -266,10 +279,36 @@ def run(
                 "with_adjustments": 0, "share_based_baselines": 0}
 
     roster = pq.read_table(roster_path)
-    # Same resolver the depth sync uses, so a promoted backup is projected rather
-    # than refused. Injury-driven usage vacancy is the signal Section 5.2 calls most
-    # exploitable; refusing it would be the worst possible failure.
-    depth = resolve_starters(depth_path, injuries_path) if depth_path else {}
+
+    # Starters and absences are resolved PER WEEK, not once per run.
+    #
+    # An injury report accumulates. Resolved once with no week filter, every player
+    # ever listed Out stays out for the rest of the season: 726 distinct players in
+    # 2025 against 48 in week 1 and 108 in week 18. By late season that benches 186
+    # skill players and promotes their backups in their place -- and the projection
+    # skips non-starters silently, so nothing would have surfaced it.
+    week_of = _week_index(schedule_path, season) if schedule_path else {}
+    _starters: dict[int | None, dict] = {}
+    _absent: dict[int | None, list[str]] = {}
+
+    def starters_for(wk: int | None) -> dict:
+        if wk not in _starters:
+            _starters[wk] = (
+                resolve_starters(depth_path, injuries_path, week=wk, season=season)
+                if depth_path else {}
+            )
+        return _starters[wk]
+
+    def absent_for(wk: int | None) -> list[str]:
+        """Teammates ruled out this week, so a with/without split can move a share."""
+        if wk not in _absent:
+            if depth_path and injuries_path:
+                from pipeline.features.starters import injured_out
+                _absent[wk] = sorted(injured_out(injuries_path, week=wk, season=season))
+            else:
+                _absent[wk] = []
+        return _absent[wk]
+
     # Share x team volume replaces the raw historical count as the volume baseline.
     # A raw count assumes both team volume and the player's role stay put; splitting
     # them lets the projection respond when either moves.
@@ -283,14 +322,6 @@ def run(
                 pq.read_table(players_path), "target_share")
     except Exception:
         team_vol = usage_tbl = splits_tbl = None
-
-    # Teammates ruled out, so a with/without split can move a player's share. Empty
-    # until injury reports publish, which is why the split path is currently inert
-    # rather than wrong.
-    absent_ids: list[str] = []
-    if depth_path and injuries_path:
-        from pipeline.features.starters import injured_out
-        absent_ids = sorted(injured_out(injuries_path))
 
     rest_ctx = {}
     if schedule_path:
@@ -372,6 +403,26 @@ def run(
             if not model:
                 skip("unmodelled_market"); continue
 
+            # The volume driver this market settles on. Assigned HERE, before
+            # load_context reads it. It used to be assigned ~120 lines further down,
+            # after its own first use: the first market of every run therefore raised
+            # UnboundLocalError into a bare `except` and silently lost all context
+            # including the usage-trend adjustment, and every market after it inherited
+            # the PREVIOUS market's driver -- so a rushing prop following a receiving
+            # prop had its "carries trend" computed from targets.
+            volume_metric = {
+                "receiving_yards": "targets", "receptions": "targets",
+                "anytime_td": "red-zone touches",
+                "rushing_yards": "carries",
+                "passing_yards": "pass attempts", "passing_tds": "pass attempts",
+            }[model]
+
+            # This market's own week, so the injury report is read as of the game
+            # being projected rather than cumulatively across the season.
+            game_week = week_of.get(_event_date(m["market_ticker"]))
+            depth = starters_for(game_week)
+            absent_ids = absent_for(game_week)
+
             # A backup's baseline describes a role he no longer holds. Refuse rather
             # than project it: the market knows he is behind someone, our usage
             # history does not.
@@ -403,8 +454,11 @@ def run(
                     d, rk, split = defense_detail(grades[0], grades[1], opponent,
                                                   m["market_type"], xr.get("position"))
                     pctx.def_metric, pctx.def_rank, pctx.def_split = d, rk, split
-            except Exception:
+            except Exception as e:
+                # Counted, not swallowed. A bare `except` here is what concealed the
+                # volume_metric bug above for as long as it existed.
                 pctx = None
+                skip(f"context_failed:{type(e).__name__}")
 
             # Baseline: share x team volume where we can, raw count otherwise.
             share_metric = {"receiving_yards": "target_share",
@@ -518,13 +572,6 @@ def run(
             if baseline_override is not None:
                 n_share_based += 1
             proj_id = str(uuid.uuid4())
-            # volume driver differs by market family; the rationale names it
-            volume_metric = {
-                "receiving_yards": "targets", "receptions": "targets",
-                "anytime_td": "red-zone touches",
-                "rushing_yards": "carries",
-                "passing_yards": "pass attempts", "passing_tds": "pass attempts",
-            }[model]
             baseline_vol = vp.baseline
             edge_preview = compute_edge(p_over, m["yes_ask"])
 
