@@ -1629,3 +1629,39 @@ invisible because absence looks exactly like "no effect this week". Every one wi
 now reports a counter — `with_p_inactive`, `with_spread`, `outdoor_games`/`with_wind` —
 and wind reports games *seen* alongside adjustments *applied*, because a calm week and a
 broken forecast are otherwise the same number.
+
+---
+
+## "Same team" was never one relationship
+
+`parlay.ts` carried correlation priors described as "documented, moderate, and
+replaceable once data exists". The data exists. Fitted over 2024-25 player-games:
+
+| pair | prior | measured | n |
+|---|---|---|---|
+| same player, two markets | 0.55 | **0.82** | 8,571 |
+| quarterback → his own receiver | 0.30 | 0.30 ✓ | 4,902 |
+| two pass catchers, same team | 0.30 | **−0.02** | 2,078 |
+| quarterback → his own back | 0.30 | **−0.08** | 1,301 |
+| two backs, same team | 0.30 | **−0.15** | 1,316 |
+| opposing quarterbacks | −0.10 | **+0.12** | 1,028 |
+| opposing, anything else | −0.10 | +0.02 | 3,829 |
+
+The quarterback→receiver case landing exactly on its prior is what validates the
+method; the rest are genuine corrections.
+
+**The structural error was collapsing "same team" into one number.** A quarterback and
+his receiver rise together because the same completion feeds both lines. Two receivers
+*compete* for the same targets and two backs split the same carries, so those legs are
+independent or mildly opposed — not +0.30 correlated. Every one of these errors ran the
+same direction: **overstating correlation on a same-side parlay overstates the joint
+probability, which flatters the ticket.**
+
+Roles are derived from `marketType` rather than looking up a position, because the leg
+already carries the market and a second lookup would be a second source of truth for
+the same fact.
+
+The check script's `sameTeam` assertion was itself an encoding of the wrong assumption
+and was rewritten rather than deleted: it now pins that a passer-receiver stack beats
+two backs, that two backs come out negative, and that opposing quarterbacks correlate
+but less than a same-team stack.

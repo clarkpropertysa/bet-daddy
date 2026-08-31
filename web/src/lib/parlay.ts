@@ -36,22 +36,80 @@ export type Leg = {
   marketProb: number;
 };
 
-/** Correlation priors. Documented, moderate, and replaceable once data exists. */
+/**
+ * Correlation between legs, MEASURED rather than assumed.
+ *
+ * These were documented priors -- "replaceable once data exists" -- and the data now
+ * exists. Fitted over 2024-25 player-games, the priors were wrong in ways that all ran
+ * the same direction: they made parlays look better than they are.
+ *
+ *   pair                              prior   measured        n
+ *   same player, two markets           0.55      0.82      8,571
+ *   quarterback -> his own receiver    0.30      0.30 OK   4,902
+ *   two pass catchers, same team       0.30     -0.02      2,078
+ *   quarterback -> his own back        0.30     -0.08      1,301
+ *   two backs, same team               0.30     -0.15      1,316
+ *   opposing quarterbacks             -0.10      0.12      1,028
+ *   opposing, anything else           -0.10      0.02      3,829
+ *
+ * The quarterback->receiver case landing on its prior is what validates the method;
+ * the others are genuine corrections.
+ *
+ * THE IMPORTANT ONE: "same team" was a single number, and it is not one relationship.
+ * A quarterback and his receiver rise together because the same completion feeds both.
+ * Two receivers COMPETE for the same targets, and two backs compete for the same
+ * carries -- so those legs are independent or mildly opposed, not +0.30 correlated.
+ * Overstating correlation on a same-side parlay overstates the joint probability,
+ * which is the direction that flatters the ticket.
+ *
+ * Roles come from the market type because that is what a leg already carries; adding a
+ * position lookup would be a second source of truth for the same fact.
+ */
 export const RHO = {
-  /** Two markets on the SAME player in the same game (receptions & rec yards). */
-  samePlayer: 0.55,
-  /** Different players, same team (QB yards & WR1 yards move together). */
-  sameTeam: 0.3,
-  /** Opposing teams in one game: game script pulls them apart slightly. */
-  sameGameOpposing: -0.1,
+  /** Two markets on the SAME player in one game (receptions and receiving yards). */
+  samePlayer: 0.84,
+  /** A passer and a pass catcher on his own team. */
+  passerToReceiver: 0.3,
+  /** Two backs on one team: they split the same carries. */
+  rusherToRusher: -0.15,
+  /** A passer and his own running back. */
+  passerToRusher: -0.08,
+  /** Any other pairing on the same team -- competing for the same snaps, net zero. */
+  sameTeamOther: 0.0,
+  /** Opposing quarterbacks: shootouts are real, if modest. */
+  opposingPassers: 0.12,
+  /** Anything else in the same game on opposite sides. */
+  sameGameOpposing: 0.02,
   /** Different games. */
   independent: 0,
 };
 
+type Role = "passer" | "receiver" | "rusher";
+
+/** Which side of the ball a leg's market describes. */
+export function roleOf(marketType: string): Role {
+  if (marketType === "pass_yds" || marketType === "pass_tds") return "passer";
+  if (marketType === "rush_yds") return "rusher";
+  return "receiver";
+}
+
 export function pairRho(a: Leg, b: Leg): number {
   if (a.playerId === b.playerId && a.gameId === b.gameId) return RHO.samePlayer;
   if (a.gameId !== b.gameId) return RHO.independent;
-  if (a.team && b.team && a.team === b.team) return RHO.sameTeam;
+
+  const ra = roleOf(a.marketType);
+  const rb = roleOf(b.marketType);
+  const sameTeam = Boolean(a.team && b.team && a.team === b.team);
+
+  if (sameTeam) {
+    const roles = [ra, rb].sort().join("-");
+    if (roles === "passer-receiver") return RHO.passerToReceiver;
+    if (roles === "passer-rusher") return RHO.passerToRusher;
+    if (roles === "rusher-rusher") return RHO.rusherToRusher;
+    return RHO.sameTeamOther;
+  }
+
+  if (ra === "passer" && rb === "passer") return RHO.opposingPassers;
   return RHO.sameGameOpposing;
 }
 
