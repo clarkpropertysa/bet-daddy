@@ -202,6 +202,32 @@ def _week_index(schedule_path: str, season: int) -> dict[str, int]:
     return {d: int(w) for d, w in rows}
 
 
+def _spread_index(schedule_path: str, season: int) -> dict[tuple[str, str], float]:
+    """(game date, team) -> that TEAM's spread. Positive means the team is favoured.
+
+    nflverse `spread_line` is positive when the HOME team is favoured, so the away
+    team's spread is its negation. Verified against outcomes rather than assumed:
+    over 1,084 team-games, six-point favourites pass on 53.7% of snaps and six-point
+    underdogs on 59.5%, and the correlation between this signed spread and pass rate
+    is -0.200 -- matching the -0.188 team_volume.py measured when it fitted the slope.
+    Getting the sign backwards would push every projection exactly the wrong way.
+    """
+    try:
+        rows = duckdb.connect().execute(f"""
+            select cast(gameday as varchar), home_team, away_team, spread_line
+            from read_parquet('{schedule_path}')
+            where season = {int(season)} and spread_line is not null
+              and gameday is not null
+        """).fetchall()
+    except Exception:
+        return {}
+    out: dict[tuple[str, str], float] = {}
+    for day, home, away, sp in rows:
+        out[(day, home)] = float(sp)
+        out[(day, away)] = -float(sp)
+    return out
+
+
 def _rest_context(schedule_path: str, season: int) -> dict:
     """(team, date) -> (days_rest, is_short_week, is_post_bye).
 
@@ -278,7 +304,7 @@ def run(
         return {"markets": 0, "projections": 0, "signals": 0, "skipped": {},
                 "mode": mode, "census": census,
                 "with_adjustments": 0, "share_based_baselines": 0,
-                "with_p_inactive": 0}
+                "with_p_inactive": 0, "with_spread": 0}
 
     roster = pq.read_table(roster_path)
 
@@ -290,6 +316,7 @@ def run(
     # skill players and promotes their backups in their place -- and the projection
     # skips non-starters silently, so nothing would have surfaced it.
     week_of = _week_index(schedule_path, season) if schedule_path else {}
+    spread_of = _spread_index(schedule_path, season) if schedule_path else {}
     _starters: dict[int | None, dict] = {}
     _absent: dict[int | None, list[str]] = {}
 
@@ -391,6 +418,8 @@ def run(
     # with_adjustments: a layer that stops being reached looks identical to one that
     # is working. p_inactive in particular was dead from the day it was written.
     n_p_inactive = 0
+    #: Projections whose team volume was adjusted for game script.
+    n_spread = 0
 
     def skip(reason: str):
         skipped[reason] = skipped.get(reason, 0) + 1
@@ -447,7 +476,8 @@ def run(
 
             # This market's own week, so the injury report is read as of the game
             # being projected rather than cumulatively across the season.
-            game_week = week_of.get(_event_date(m["market_ticker"]))
+            game_date = _event_date(m["market_ticker"])
+            game_week = week_of.get(game_date)
             depth = starters_for(game_week)
             absent_ids = absent_for(game_week)
             # A Questionable player has roughly a 40% chance of taking no offensive
@@ -477,6 +507,12 @@ def run(
 
             team_code = (xr.get("team") or "")
             opponent = _opponent_of(m["market_ticker"], team_code)
+            # Positive means this team is favoured. Both project_for_game call sites
+            # passed None until now, so SPREAD_PASS_RATE_SLOPE was dead and every
+            # pass/run split was the season average whether the team was a ten-point
+            # favourite or a ten-point dog -- while the comment below claimed
+            # otherwise.
+            team_spread = spread_of.get((game_date, team_code)) if game_date else None
 
             # Context is loaded BEFORE the adjustments now: recent form is a model
             # input, not just an explanation. It was previously computed only for the
@@ -507,7 +543,7 @@ def run(
             # props to game script: an underdog throws more.
             if model in ("passing_yards", "passing_tds") and team_vol \
                     and team_code in team_vol:
-                tvq = project_for_game(team_vol[team_code], None)
+                tvq = project_for_game(team_vol[team_code], team_spread)
                 # keep his own share of dropbacks rather than assuming he takes all
                 own = (pi.attempts_per_game / tvq.pass_attempts
                        if tvq.pass_attempts else 0)
@@ -519,7 +555,7 @@ def run(
                         "split_teammate": None, "notes": None})()
 
             if share_metric and team_vol and usage_tbl is not None and team_code in team_vol:
-                tv = project_for_game(team_vol[team_code], None)
+                tv = project_for_game(team_vol[team_code], team_spread)
                 team_units = (tv.pass_attempts if share_metric == "target_share"
                               else tv.rush_attempts)
                 raw_pg = (pi.targets_per_game if share_metric == "target_share"
@@ -697,6 +733,8 @@ def run(
                 n_proj += 1
                 if p_inactive > 0:
                     n_p_inactive += 1
+                if team_spread is not None:
+                    n_spread += 1
 
                 edge = edge_preview
                 cur.execute(
@@ -726,7 +764,8 @@ def run(
             "mode": mode, "census": census,
             "with_adjustments": n_with_adj,
             "share_based_baselines": n_share_based,
-            "with_p_inactive": n_p_inactive}
+            "with_p_inactive": n_p_inactive,
+            "with_spread": n_spread}
 
 
 def main():
@@ -788,7 +827,8 @@ def main():
     print(f"mode={r.get('mode')} markets={r['markets']} "
           f"projections={r['projections']} signals={r['signals']} "
           f"with_adjustments={adj_n} share_based={r.get('share_based_baselines', 0)} "
-          f"with_p_inactive={r.get('with_p_inactive', 0)}")
+          f"with_p_inactive={r.get('with_p_inactive', 0)} "
+          f"with_spread={r.get('with_spread', 0)}")
     census = r.get("census")
     if census:
         print(f"open markets: listed={census['listed']} quoted={census['quoted']} "
