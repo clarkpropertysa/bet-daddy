@@ -17,9 +17,7 @@ export default async function TrackRecordPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="display flex items-baseline gap-2 text-[22px] leading-none text-ink">
-          <span className="text-steel">03 —</span>Track Record
-        </h1>
+        <h1 className="display text-[22px] leading-none text-ink">Track Record</h1>
         <p className="mt-2 max-w-2xl text-[12.5px] leading-relaxed text-ink-2">
           Every signal ever emitted, settled or not. Closing line value is the primary
           metric: it measures whether the market moved toward the bet, and it is
