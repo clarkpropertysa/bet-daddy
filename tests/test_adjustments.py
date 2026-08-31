@@ -84,3 +84,48 @@ def test_rest_effects_are_small():
     edge, which costs more than failing to find some."""
     assert abs(rest_adjustment(4, True, False).multiplier - 1.0) <= 0.05
     assert abs(rest_adjustment(14, False, True).multiplier - 1.0) <= 0.05
+
+
+def test_usage_trend_applies_only_the_share_that_persists():
+    """Measured, and it overturns what the unconditional numbers suggest.
+
+    As single predictors the season mean beats recency outright (target share
+    r2=0.439 against 0.404), which reads as "drop the trend". But the right question is
+    whether the deviation adds anything ONCE the season mean is known. Over 1,972
+    player-games it does: R2 0.4276 -> 0.4357, coefficient +0.248.
+
+    So recent form is real and roughly a quarter as strong as face value. Only the
+    sample-size weight was being applied, so a five-game trend moved the projection
+    about four times more than the data supports.
+    """
+    from pipeline.model.adjustments import (
+        USAGE_TREND_MAX_SWING,
+        USAGE_TREND_PERSISTENCE,
+        usage_trend_adjustment,
+    )
+
+    # A trend far beyond the cap, on enough games for full sample weight.
+    a = usage_trend_adjustment(2.0, 1.0, 8)
+    assert a is not None
+    applied = a.multiplier - 1.0
+    ceiling = USAGE_TREND_MAX_SWING * USAGE_TREND_PERSISTENCE
+    assert applied == pytest.approx(ceiling, abs=1e-6), a.multiplier
+    # Under a tenth of the raw 100% deviation.
+    assert applied < 0.10
+
+
+def test_usage_trend_persistence_is_a_shrink_not_a_sign_flip():
+    """It must damp the deviation, never invert or amplify it."""
+    from pipeline.model.adjustments import USAGE_TREND_PERSISTENCE
+
+    assert 0 < USAGE_TREND_PERSISTENCE <= 1.0
+
+
+def test_sample_size_and_persistence_both_apply():
+    """They answer different questions -- "do I trust this estimate" and "how much of a
+    true deviation carries forward" -- so a thin sample must still be shrunk twice."""
+    from pipeline.model.adjustments import usage_trend_adjustment
+
+    thin = usage_trend_adjustment(1.4, 1.0, 2)
+    full = usage_trend_adjustment(1.4, 1.0, 8)
+    assert abs(thin.multiplier - 1.0) < abs(full.multiplier - 1.0)

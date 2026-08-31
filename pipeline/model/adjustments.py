@@ -34,6 +34,25 @@ POST_BYE_SWING = 0.02
 USAGE_TREND_MAX_SWING = 0.10
 USAGE_TREND_FULL_WEIGHT_GAMES = 5
 
+# How much of a recent deviation actually carries into the next game.
+#
+# MEASURED, and it settles a question the unconditional numbers get wrong. Compared as
+# single predictors, the season mean beats recency outright (target share r2=0.439
+# against 0.404 for the last three games), which reads as "drop the trend". But that is
+# the wrong comparison: the question is whether the DEVIATION adds anything once the
+# season mean is already known. Regressing next-game target share on both, over 1,972
+# player-games:
+#
+#     season mean alone                R2 = 0.4276
+#     + recent-form deviation          R2 = 0.4357     coefficient +0.248
+#
+# So recent form is real but roughly a quarter as strong as taking it at face value.
+# The sample-size weight below answers "do I trust this estimate of the deviation";
+# this answers "how much of a TRUE deviation persists". Both belong, and only the
+# first was being applied -- so a five-game trend moved the projection four times more
+# than the data supports.
+USAGE_TREND_PERSISTENCE = 0.25
+
 # Which defensive split governs which market.
 MARKET_TO_DEFENSE = {
     "rec_yds": ("pass", "all"),
@@ -153,7 +172,7 @@ def usage_trend_adjustment(
     # a two-game streak moves the projection exactly as much as an eight-game one
     # and the shrinkage silently does nothing.
     capped = max(-USAGE_TREND_MAX_SWING, min(USAGE_TREND_MAX_SWING, raw))
-    swing = capped * weight
+    swing = capped * weight * USAGE_TREND_PERSISTENCE
     if abs(swing) < 0.005:
         return None
     direction = "above" if raw > 0 else "below"
@@ -161,5 +180,6 @@ def usage_trend_adjustment(
         name="usage_trend",
         multiplier=round(1.0 + swing, 4),
         detail=(f"last {recent_games} games {abs(raw):.0%} {direction} his season rate"
-                f" (shrunk to {abs(swing):.1%} on {recent_games} games)"),
+                f" (applied as {abs(swing):.1%}: {recent_games} games of evidence, and"
+                f" about a quarter of a deviation persists)"),
     )

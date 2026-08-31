@@ -1713,3 +1713,34 @@ means the entire league sat in a **1.3-play band (60.5 to 61.8)**, permanently.
 The current season is now passed when the file exists, and `teams_with_current_season`
 is reported out of 32. Zero before week 1 is correct; zero in November means the blend
 has gone inert again.
+
+---
+
+## Recent form is real, and was applied four times too hard
+
+The plan was to test `usage_trend` and then decide. The unconditional numbers argue for
+deleting it: as single predictors the season mean beats recency outright (target share
+r² 0.439 against 0.404 for the last three games; carries 0.539).
+
+That is the wrong comparison. The question is not "which single predictor is better",
+it is "does the DEVIATION add anything once the season mean is already known".
+Regressing next-game target share on both, over 1,972 player-games:
+
+    season mean alone           R² = 0.4276
+    + recent-form deviation     R² = 0.4357     coefficient +0.248
+
+So recent form carries real information and roughly a quarter of a deviation persists.
+Keep it — but the adjustment was applying the deviation at 60–100% of face value,
+because the only shrink in the code was the **sample-size weight**.
+
+Those answer different questions. The sample-size weight asks *do I trust this estimate
+of the deviation*; persistence asks *how much of a true deviation carries forward*. Both
+belong, and only the first was there. A five-game trend was moving the projection about
+four times more than the data supports.
+
+`USAGE_TREND_PERSISTENCE = 0.25` now applies alongside it, capping the effective swing
+at 2.5% rather than 10%.
+
+This one could not have been evaluated before the `volume_metric` fix: the trend was
+being computed from the wrong volume driver on every market after the first, so any
+measurement of its value would have been measuring noise.
