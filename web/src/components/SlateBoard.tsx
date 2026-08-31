@@ -121,10 +121,19 @@ export function SlateGames({ games }: { games: SlateGame[] }) {
                       {g.totalLine ?? "—"}
                     </span>
                     <span className="eyebrow ml-1">spread</span>
+                    {/* NAME THE TEAM. nflverse spread_line is positive when the HOME
+                        team is favoured, so a bare "+3.5" on "NE @ SEA" reads most
+                        naturally as NE getting points -- the exact opposite of what
+                        it means. Rendered the way a sportsbook would: favourite and
+                        the number it lays. */}
                     <span className="odds-box text-[12px]">
-                      {g.spreadLine !== null
-                        ? `${g.spreadLine > 0 ? "+" : ""}${g.spreadLine}`
-                        : "—"}
+                      {g.spreadLine !== null && g.spreadLine !== 0
+                        ? `${g.spreadLine > 0 ? g.homeTeam : g.awayTeam} -${Math.abs(
+                            g.spreadLine,
+                          )}`
+                        : g.spreadLine === 0
+                          ? "pick'em"
+                          : "—"}
                     </span>
                   </span>
 

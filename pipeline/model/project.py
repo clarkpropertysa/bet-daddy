@@ -357,6 +357,7 @@ def run(
     max_price_age_mins: int = 180,
     refresh: bool = False,
     current_pbp_path: str | None = None,
+    current_snaps_path: str | None = None,
 ) -> dict:
     if mode not in ("live", "settled"):
         raise ValueError(f"mode must be 'live' or 'settled', got {mode!r}")
@@ -447,10 +448,16 @@ def run(
     # every prop has been priced as though the player is certain to play -- no left
     # tail at all, on the single largest risk a yardage line carries.
     inactivity = None
-    if injuries_path and snaps_path and players_path:
+    # CURRENT-season snaps, not the prior season's. The two consumers of snap counts
+    # want different files: the with/without splits are built from history, while
+    # P(inactive) must be measured on the season being projected. Pairing a 2026
+    # injury report with 2025 snaps makes every cell resolve to 1.000 -- see the guard
+    # in features/availability.py -- so this is now explicit rather than inherited.
+    _inactivity_snaps = current_snaps_path or snaps_path
+    if injuries_path and _inactivity_snaps and players_path:
         try:
             inactivity = build_inactivity_table(
-                injuries_path, snaps_path, players_path, season)
+                injuries_path, _inactivity_snaps, players_path, season)
         except Exception:
             inactivity = None
 
@@ -782,11 +789,18 @@ def run(
                         {"step": f"touches {zone_label[z]} / game",
                          "value": round(d["touches"], 2),
                          "multiplier": 1.0,
+                         # The rate is SHRUNK toward the positional baseline, not
+                         # switched to it, so the wording says which it mostly is
+                         # rather than claiming it is purely one or the other.
                          "detail": (
                              f"scores {d['rate']:.1%} of the time from there"
-                             + ("" if d["own"]
-                                else f" ({ti.position or 'positional'} baseline —"
-                                     " too few of his own touches there)")
+                             + (
+                                 f" (mostly his own rate, {d['zone_touches']} touches)"
+                                 if d.get("own_weight", 0) >= 0.5
+                                 else f" (mostly the {ti.position or 'positional'} "
+                                      f"baseline — only {d['zone_touches']} of his own "
+                                      f"touches there)"
+                             )
                          )}
                         for z, d in td.get("by_zone", {}).items() if d["touches"] > 0
                     ],
@@ -955,7 +969,13 @@ def main():
     ap.add_argument("--depth", default="data/raw/nflverse/depth_charts_2026.parquet")
     ap.add_argument("--injuries", default="data/raw/nflverse/injuries_2026.parquet")
     ap.add_argument("--schedule", default="data/raw/nflverse/schedules.parquet")
-    ap.add_argument("--snaps", default="data/raw/nflverse/snap_counts_2025.parquet")
+    ap.add_argument("--snaps", default="data/raw/nflverse/snap_counts_2025.parquet",
+                    help="PRIOR season: the history the with/without splits are built from")
+    ap.add_argument("--current-snaps",
+                    default="data/raw/nflverse/snap_counts_2026.parquet",
+                    help="CURRENT season: what P(inactive) is measured against. A "
+                         "prior-season file here silently makes every injured player "
+                         "look certain to sit.")
     ap.add_argument("--season", type=int, default=2026)
     ap.add_argument("--allow-backups", action="store_true",
                     help="off by default: a backup's prior usage describes a role he "
@@ -993,6 +1013,7 @@ def main():
             allow_preseason=a.allow_preseason,
             allow_backups=a.allow_backups,
             current_pbp_path=(a.current_pbp if Path(a.current_pbp).exists() else None),
+            current_snaps_path=(a.current_snaps if Path(a.current_snaps).exists() else None),
             mode=a.mode,
             max_price_age_mins=a.max_price_age,
             refresh=a.refresh,

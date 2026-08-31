@@ -11,7 +11,8 @@
     "postinstall": "prisma generate",
     "check:parlay": "node --experimental-strip-types scripts/check-parlay.mjs",
     "deploy": "vercel --prod",
-    "check:edge": "node --experimental-strip-types scripts/check-edge.mjs"
+    "check:edge": "node --experimental-strip-types scripts/check-edge.mjs",
+    "check:games": "node --experimental-strip-types scripts/check-game-match.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

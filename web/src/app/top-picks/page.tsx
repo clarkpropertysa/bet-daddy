@@ -5,7 +5,7 @@ import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { StaleBanner } from "@/components/StaleBanner";
 import { Tier } from "@/components/Tier";
 import { signedCents } from "@/lib/format";
-import { gameLabel, labelFor } from "@/lib/markets";
+import { gameFromTicker, labelFor } from "@/lib/markets";
 import { getBoard, getJobHealth, getNextSlate } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -130,7 +130,10 @@ export default async function TopPicksPage() {
                     </span>
                   </p>
                   <p className="mt-0.5 text-[11px] text-ink-3">
-                    {r.team ?? "—"} · {gameLabel(r.gameId)} · model{" "}
+                    {/* gameLabel parses the nflverse form (2026_01_NE_SEA); a board
+                        row carries the Kalshi ticker, which it would print raw. */}
+                    {r.team ?? "—"} ·{" "}
+                    {gameFromTicker(r.marketTicker)?.label ?? r.gameId} · model{" "}
                     {(r.modelProb * 100).toFixed(0)}% vs market{" "}
                     {(r.marketProb * 100).toFixed(0)}%
                   </p>

@@ -107,6 +107,27 @@ def build_inactivity_table(
 
     con = duckdb.connect()
     con.register("avail", avail)
+
+    # THE SNAP DATA MUST COVER THE SEASON BEING MEASURED.
+    #
+    # Without this the failure is silent and catastrophic. The join below is a LEFT
+    # join, and a player with no matching snap row counts as inactive -- so pairing a
+    # 2026 injury report with a 2025 snap-counts file makes every cell resolve to
+    # p_inactive = 1.000, on large samples, with is_empty False. Every player on the
+    # injury report is then projected as certain not to play, their whole projection
+    # zeroed, while the inertness counter reports the layer as working perfectly.
+    #
+    # That is exactly the production default: project.py ships --snaps
+    # snap_counts_2025.parquet and --season 2026.
+    try:
+        covered = con.execute(
+            "select count(*) from avail where season = ?", [int(season)]
+        ).fetchone()[0]
+    except Exception:
+        covered = 0
+    if not covered:
+        return InactivityTable({}, {}, season)
+
     positions = ", ".join(f"'{p}'" for p in SKILL)
     try:
         rows = con.execute(f"""

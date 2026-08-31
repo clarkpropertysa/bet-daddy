@@ -57,5 +57,7 @@ jobs:
         run: npm run check:edge --prefix web
       - name: Parlay correlation checks
         run: npm run check:parlay --prefix web
+      - name: Board game filter spans two identifier spaces
+        run: npm run check:games --prefix web
       - name: Types
         run: npx --prefix web tsc --noEmit -p web/tsconfig.json

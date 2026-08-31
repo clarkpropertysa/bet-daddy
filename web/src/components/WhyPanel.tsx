@@ -179,7 +179,11 @@ export function WhyPanel({
             )}
           </Section>
 
-          {reason.percentiles && (
+          {/* An empty object is truthy, so `reason.percentiles &&` let anytime-TD
+              signals through -- they are a binary outcome and store no distribution,
+              which rendered a chart placeholder above five dashes. A distribution
+              section is meaningless for a yes/no market, so it is omitted. */}
+          {reason.percentiles && Object.keys(reason.percentiles).length > 0 && (
             <Section
               title="Simulated distribution"
               note="20,000 Monte Carlo draws. Efficiency bootstrapped from this player's own outcomes, so the right tail is preserved."

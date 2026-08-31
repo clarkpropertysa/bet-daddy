@@ -123,3 +123,42 @@ def test_missing_files_degrade_to_an_empty_table_not_an_exception():
     t = build_inactivity_table("nope.parquet", "nope.parquet", "nope.parquet", 2026)
     assert t.is_empty
     assert status_lookup("nope.parquet", 2026, 1) == {}
+
+
+def test_snap_data_must_cover_the_season_being_measured():
+    """The most dangerous failure this module can have, and it is silent.
+
+    The join to snap counts is a LEFT join, and a player with no matching snap row
+    counts as inactive. So pairing a 2026 injury report with a 2025 snap-counts file
+    resolves EVERY cell to p_inactive = 1.000, on large samples, with is_empty False
+    -- every player on the injury report projected as certain not to play, their whole
+    projection zeroed, while the inertness counter reports the layer as healthy.
+
+    That was the shipping default: --snaps snap_counts_2025.parquet with --season 2026.
+    """
+    if not (DATA / "snap_counts_2024.parquet").exists():
+        pytest.skip("2024 snaps not ingested")
+    mismatched = build_inactivity_table(
+        str(DATA / "injuries_2025.parquet"),      # has 2025 rows
+        str(DATA / "snap_counts_2024.parquet"),   # covers a different season
+        str(DATA / "players.parquet"),
+        2025,
+    )
+    assert mismatched.is_empty, (
+        "a season the snap data does not cover must yield NO table, not a table of "
+        "1.000s -- the projection can survive a missing layer and cannot survive a "
+        "confidently wrong one"
+    )
+
+
+@needs_data
+def test_matched_seasons_still_produce_a_usable_table():
+    """The guard must not be so strict that the layer never runs."""
+    t = build_inactivity_table(
+        str(DATA / "injuries_2025.parquet"),
+        str(DATA / "snap_counts_2025.parquet"),
+        str(DATA / "players.parquet"),
+        2025,
+    )
+    assert not t.is_empty
+    assert t.probability("Questionable", "Limited Participation in Practice") < 0.9

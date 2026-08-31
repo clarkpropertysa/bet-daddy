@@ -1846,3 +1846,68 @@ games, those above 15mph land **0.9 points under** the closing line and games un
 10mph land 1.4 over — directionally right, tiny, and on 59 games. The market prices
 weather already; the honest use of a wind forecast here is describing conditions, not
 claiming a mispricing.
+
+---
+
+## Pre-launch sweep
+
+Real users get the link before Week 1, so this pass looked specifically for things that
+are invisible today and break the moment data arrives.
+
+### The board filter spanned two identifier spaces
+
+`getBoard(limit, gameId)` accepted a game and never filtered on it — there was no clause
+in the SQL. Clicking a game on the Slate rendered a *"Showing props for NE at SEA"* chip
+above the entire league's board.
+
+The reason it was never wired is that the two sides are different identifier spaces:
+
+    nflverse:  2026_01_NE_SEA     season_week_AWAY_HOME
+    Kalshi:    26SEP09NESEA       two codes concatenated, no separator
+
+`Projection.gameId` holds the Kalshi event ticker; the Slate links the nflverse id.
+`tickerMatchesGame` now maps between them, matched on **teams rather than dates** —
+nflverse dates a game by local kickoff and Kalshi by its own event day, and they
+disagree on late Sunday and Monday games. It carries the JAC/JAX and LAR/LA aliases,
+because that mapping has already made a franchise disappear once.
+
+The same confusion had reached Top Picks, which called `gameLabel` (the nflverse parser)
+on a Kalshi ticker and would have printed `26SEP10SFLAR` raw.
+
+### P(inactive) would have zeroed every injured player in Week 1
+
+The worst find, and completely silent. `build_inactivity_table` LEFT joins snap counts,
+so a player with no matching snap row counts as inactive. Pair a **2026** injury report
+with a **2025** snap-counts file and every cell resolves to `p_inactive = 1.000`, on
+large samples, with `is_empty` False.
+
+Every player on the injury report would then be projected as certain not to play — the
+whole projection zeroed — while `with_p_inactive` reported the layer as working
+perfectly.
+
+That was the shipping default: `--snaps snap_counts_2025.parquet` with `--season 2026`.
+
+Two fixes. The table now refuses to build unless the snap data actually covers the
+season being measured, so a mismatch yields no layer rather than a confidently wrong
+one. And the projection takes a separate `--current-snaps`, because the two consumers
+genuinely want different files: the with/without splits are built from history, while
+P(inactive) must be measured on the season being projected.
+
+### Smaller, still user-facing
+
+- **The Slate showed a bare spread.** `+3.5` on "NE @ SEA" with no team attached reads
+  most naturally as NE getting points — the exact opposite of what it means. Now
+  rendered as a sportsbook would: `SEA -3.5`.
+- **Anytime-TD signals store no distribution**, and `reason.percentiles &&` let an empty
+  object through, so the Why panel would have drawn a chart placeholder above five
+  dashes. A distribution is meaningless for a binary market; the section is omitted.
+- **The anytime-TD explanation claimed a baseline it was not using.** Rates are shrunk
+  toward the positional baseline, not switched to it, so a 46% blend was being described
+  as "the WR baseline". It now says which side it mostly is, with the touch count.
+
+### What could not be tested
+
+Two of six market families have never produced a signal: `receptions` has no settled
+markets in the archive and `anytime_td` has never appeared in it at all. Both were
+exercised directly rather than through the projection, and both produce valid,
+JSON-safe payloads — but neither has round-tripped through Postgres into the UI.

@@ -197,7 +197,9 @@ def project_anytime_td(
         # Volume adjustments scale opportunity, not conversion.
         mean_touches = max(z.touches_per_game * adjustments_multiplier, 0.0)
         if mean_touches <= 0:
-            detail[zone] = {"touches": 0.0, "rate": z.td_rate, "own": z.used_own_rate}
+            detail[zone] = {"touches": 0.0, "rate": z.td_rate, "own": z.used_own_rate,
+                            "own_weight": round(float(z.own_weight), 3),
+                            "zone_touches": z.touches}
             continue
         touches = rng.poisson(mean_touches, size=iterations)
         total += rng.binomial(touches, float(np.clip(z.td_rate, 0.0, 1.0)))
@@ -205,6 +207,10 @@ def project_anytime_td(
             "touches": round(float(mean_touches), 3),
             "rate": round(float(z.td_rate), 4),
             "own": z.used_own_rate,
+            # The actual blend weight, so the explanation can describe the shrinkage
+            # rather than pretending the rate is purely one source or the other.
+            "own_weight": round(float(z.own_weight), 3),
+            "zone_touches": z.touches,
         }
 
     p = float((total >= 1).mean())

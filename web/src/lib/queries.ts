@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { computeEdge, pOverAtStrike } from "@/lib/edge";
 import { getLiveQuotes, type LiveQuoteBook } from "@/lib/livePrices";
+import { tickerMatchesGame } from "@/lib/markets";
 
 /** Same threshold the Python job applies. Recomputed here because a live price can
  *  move a signal across it in either direction, and a stale flag is worse than none. */
@@ -139,7 +140,15 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
   // price moved into a real edge would be missing entirely, which is the one case
   // worth seeing.
   const book = await getLiveQuotes();
-  const priced = rows.map((r) => reprice(r, book));
+  // The gameId filter was accepted and never applied -- the SQL had no clause for it,
+  // so clicking a game on the Slate showed a "Showing props for X" chip above the
+  // whole league's board. It is applied here rather than in SQL because the two sides
+  // are different identifier spaces: Projection.gameId holds a Kalshi event ticker
+  // and the Slate links an nflverse game id.
+  const scoped = gameId
+    ? rows.filter((r) => tickerMatchesGame(r.marketTicker, gameId))
+    : rows;
+  const priced = scoped.map((r) => reprice(r, book));
   priced.sort((a, b) => b.edgeCentsNet - a.edgeCentsNet);
   return priced.slice(0, limit);
 }

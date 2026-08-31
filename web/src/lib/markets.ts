@@ -98,3 +98,45 @@ export function gameFromTicker(
     preseason: mon === "AUG" || mon === "JUL",
   };
 }
+
+
+/**
+ * Do an nflverse game id and a Kalshi event ticker describe the same game?
+ *
+ * They are different identifier spaces and nothing mapped between them, which is why
+ * the board's `?game=` filter was accepted and then silently ignored -- the page showed
+ * a "Showing props for NE at SEA" chip above the entire league's board.
+ *
+ *   nflverse:  2026_01_NE_SEA        season_week_AWAY_HOME
+ *   Kalshi:    KX...-26SEP09NESEA-   two codes concatenated, no separator
+ *
+ * Matched on the teams rather than the date: nflverse dates a game by kickoff local
+ * time and Kalshi by its own event day, and they disagree on late Sunday and Monday
+ * games. Two teams meeting twice in a season are in different weeks, and the caller
+ * already scopes to one week.
+ */
+export function tickerMatchesGame(ticker: string, nflverseGameId: string): boolean {
+  const parts = nflverseGameId.split("_");
+  if (parts.length < 4) return false;
+  const [, , away, home] = parts;
+
+  const seg = ticker.split("-")[1];
+  if (!seg) return false;
+  const m = /^\d{2}[A-Z]{3}\d{2}([A-Z]{4,8})$/.exec(seg);
+  if (!m) return false;
+  const teams = m[1];
+
+  let tAway: string | null = null;
+  for (const code of [...TEAM_CODES].sort((a, b) => b.length - a.length)) {
+    if (teams.startsWith(code) && TEAM_CODES.has(teams.slice(code.length))) {
+      tAway = code;
+      break;
+    }
+  }
+  if (!tAway) return false;
+  const tHome = teams.slice(tAway.length);
+
+  // Kalshi writes JAC and LAR where nflverse writes JAX and LA.
+  const norm = (c: string) => ({ JAC: "JAX", LAR: "LA", WSH: "WAS" }[c] ?? c);
+  return norm(tAway) === norm(away) && norm(tHome) === norm(home);
+}
