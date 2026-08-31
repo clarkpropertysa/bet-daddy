@@ -129,3 +129,26 @@ def test_sample_size_and_persistence_both_apply():
     thin = usage_trend_adjustment(1.4, 1.0, 2)
     full = usage_trend_adjustment(1.4, 1.0, 8)
     assert abs(thin.multiplier - 1.0) < abs(full.multiplier - 1.0)
+
+
+def test_lean_backtest_is_recorded_and_honest():
+    """The game leans have no measured edge, and the number must travel with the code.
+
+    Backtested on 544 out-of-sample games: the model's side covered 46.7% of 272
+    disagreements of 3.5+ points, against a 52.4% break-even at -110. Regressed
+    against the closing line the model's coefficient is negative, so conditional on
+    the market it points the wrong way.
+
+    Pinned so that if anyone later reports these leans as picks, this fails first.
+    """
+    from pipeline.model.team_rating import LEAN_BACKTEST as L
+
+    assert L["n"] >= 200, "too small a sample to characterise at all"
+    assert L["cover_rate"] < L["breakeven"], (
+        "if the leans ever clear break-even this constant must be re-measured, not "
+        "quietly assumed -- and the UI copy calling them edgeless must change with it"
+    )
+    assert L["market_corr"] > L["model_corr"], (
+        "the market out-predicting the model is the whole reason a disagreement is "
+        "not evidence of a mispricing"
+    )

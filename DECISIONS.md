@@ -1911,3 +1911,49 @@ Two of six market families have never produced a signal: `receptions` has no set
 markets in the archive and `anytime_td` has never appeared in it at all. Both were
 exercised directly rather than through the projection, and both produce valid,
 JSON-safe payloads — but neither has round-tripped through Postgres into the UI.
+
+---
+
+## The game leans have no measured edge, and now say so
+
+Asked to keep the spread section but make it more accurate, the honest finding is that
+the predictions cannot be made more accurate — so what was made accurate is the claim.
+
+Backtested on 544 out-of-sample games (2024 projected from 2023, 2025 from 2024), taking
+every game where the model disagreed with the closing spread by 3.5 points or more:
+
+| | |
+|---|---|
+| model's side covered | **46.7%** (n = 272) |
+| break-even at −110 | 52.4% |
+| model correlation with actual margin | +0.181 |
+| closing spread correlation | +0.504 |
+
+Four attempts to improve it, all measured, none working:
+
+- **Refit the scale.** RMSE 14.077 against 14.091 raw. The model is not merely
+  mis-scaled.
+- **Add it to the market.** Regressed alongside the closing line, the model's
+  coefficient comes out **negative (−0.33)** — conditional on the market it points the
+  wrong way, and the disagreement correlates −0.124 with the home cover margin.
+- **More prior data.** 2024 projected from 2023 covered 45.3%, worse than 48.1%.
+- **Wait for in-season data.** Weeks 1–4 / 5–10 / 11–18 covered 47.4% / 54.3% / 44.3%
+  — no durable pattern.
+
+The cause is visible in the correlations: the market already contains everything this
+model knows and much it does not, so a disagreement is far more likely to be model error
+than a mispricing. The model's predictions also barely differentiate games at all —
+sd 3.06 against the market's 5.90 and actual margins' 14.29.
+
+n = 272 is not enough to call this reliably anti-predictive; the interval spans roughly
+41% to 53%. It is more than enough to say there is no evidence of an edge.
+
+**The record is rendered above the leans, not beneath them.** A list of teams with point
+figures reads as a recommendation regardless of what a footnote says, and this list has
+not earned that reading. The per-game figure is labelled "disagreement" rather than "off
+the market", and `LEAN_BACKTEST` is pinned by a test that fails if the cover rate ever
+crosses break-even without being re-measured — because at that point the UI copy calling
+them edgeless has to change too.
+
+The player props are a separate model against a far thinner market and do not inherit
+this result. This is specifically the team-rating margin model.

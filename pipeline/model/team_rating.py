@@ -44,6 +44,36 @@ MARGIN_RMSE_PTS = 14.05
 # A quarter of the standard error. Below this the lean is inside the model's noise.
 MIN_MEANINGFUL_EDGE_PTS = 3.5
 
+# HOW THESE LEANS HAVE ACTUALLY DONE. Measured, and the answer is: not well.
+#
+# Backtested on 544 out-of-sample games (2024 projected from 2023, 2025 from 2024),
+# taking every game where this model disagreed with the closing spread by at least
+# MIN_MEANINGFUL_EDGE_PTS:
+#
+#     the model's side covered            46.7%  (n = 272)
+#     break-even at -110                  52.4%
+#
+# It is not merely weak. Regressed against the closing line, the model's coefficient
+# comes out NEGATIVE (-0.33) -- conditional on the market, its prediction points the
+# wrong way. And the disagreement correlates -0.124 with the home team's cover margin.
+#
+# Why: the model correlates +0.181 with actual margins; the closing spread correlates
+# +0.504. The market already contains everything this model knows and a great deal it
+# does not, so a disagreement is far more likely to be model error than a mispricing.
+#
+# n = 272 is not enough to call this reliably anti-predictive -- the interval spans
+# roughly 41% to 53% -- but it is more than enough to say there is no evidence of an
+# edge. These numbers are surfaced next to the leans rather than kept in a comment,
+# because a lean shown without them reads as a recommendation.
+LEAN_BACKTEST = {
+    "n": 272,
+    "cover_rate": 0.467,
+    "breakeven": 0.524,
+    "seasons": "2024-2025",
+    "model_corr": 0.181,
+    "market_corr": 0.504,
+}
+
 # Games of current-season data at which it fully replaces the prior season. Chosen so
 # the blend crosses 50% around week 4-5, roughly where in-season EPA becomes the
 # better predictor.

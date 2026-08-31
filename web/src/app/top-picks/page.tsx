@@ -89,7 +89,7 @@ export default async function TopPicksPage() {
     <div>
       <PageHeader
         title="Top Picks"
-        sub="The strongest disagreements between the model and the market right now, ranked within each kind. Nothing here is ranked across kinds — a prop edge is measured in cents after fees and a game lean in points, and inventing a common score would hide which is which."
+        sub="Where the model and the market disagree most, ranked within each kind. Props carry a measured fee-adjusted edge; game leans carry no measured edge at all and are labelled as such. Nothing is ranked across kinds — a prop edge is cents after fees and a lean is points, and inventing a common score would hide which is which."
         right={
           <StaleBanner
             lastRun={newestPrice ?? archiver?.startedAt ?? null}
@@ -163,7 +163,26 @@ export default async function TopPicksPage() {
       <section className="mb-6">
         <div className="mb-2 flex items-baseline justify-between gap-3">
           <h2 className="display text-[14px] text-ink">Game leans</h2>
-          <span className="eyebrow">vs the market spread</span>
+          <span className="eyebrow">vs the market spread · no measured edge</span>
+        </div>
+
+        {/* The record goes ABOVE the leans, not in a footnote. A list of teams and
+            numbers reads as a recommendation no matter what is written underneath it,
+            and this one has not earned that reading. */}
+        <div className="mb-2 rounded border border-warn/50 bg-warn/[0.07] px-3 py-2.5">
+          <p className="text-[11.5px] leading-relaxed text-warn">
+            <strong className="font-semibold">These have not beaten the market.</strong>{" "}
+            Backtested on 544 out-of-sample games, the model&apos;s side covered{" "}
+            <strong className="font-semibold">46.7%</strong> of the time across 272
+            disagreements of 3.5 points or more. Break-even at −110 is 52.4%.
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-warn/90">
+            The model correlates +0.18 with actual margins; the closing spread
+            correlates +0.50. The market already knows everything this model knows and
+            more, so a disagreement is more likely to be model error than a mispricing.
+            Shown as a research starting point — where the model and the market see a
+            game differently — not as a bet.
+          </p>
         </div>
 
         {leans.length === 0 ? (
@@ -187,10 +206,10 @@ export default async function TopPicksPage() {
                     </span>
                   </p>
                   <p className="shrink-0 text-right">
-                    <span className="display text-[15px] text-ink">
+                    <span className="display text-[15px] text-ink-2">
                       {gap.toFixed(1)} pts
                     </span>
-                    <span className="eyebrow block">off the market</span>
+                    <span className="eyebrow block">disagreement</span>
                   </p>
                 </div>
                 {/* Both sides stated from whoever each one favours. "market has them
