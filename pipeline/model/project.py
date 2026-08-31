@@ -317,6 +317,7 @@ def run(
     mode: str = "live",
     max_price_age_mins: int = 180,
     refresh: bool = False,
+    current_pbp_path: str | None = None,
 ) -> dict:
     if mode not in ("live", "settled"):
         raise ValueError(f"mode must be 'live' or 'settled', got {mode!r}")
@@ -353,7 +354,8 @@ def run(
                 "mode": mode, "census": census,
                 "with_adjustments": 0, "share_based_baselines": 0,
                 "with_p_inactive": 0, "with_spread": 0,
-                "outdoor_games": 0, "with_wind": 0}
+                "outdoor_games": 0, "with_wind": 0,
+                "teams_with_current_season": 0}
 
     roster = pq.read_table(roster_path)
 
@@ -438,7 +440,13 @@ def run(
     # them lets the projection respond when either moves.
     team_vol = usage_tbl = splits_tbl = None
     try:
-        team_vol = volume_dict(build_team_volume(pbp_path))
+        # The current-season blend was inert: build_team_volume was called with one
+        # argument, so `current_pbp_path` was None, the blend weight was 0, and
+        # FULL_WEIGHT_GAMES never engaged. Team volume was 100% prior-season shrunk to
+        # the league mean -- which, given PLAYS_SHRINKAGE = 0.14, meant plays per game
+        # was effectively the league constant for every team, forever.
+        team_vol = volume_dict(build_team_volume(pbp_path, current_pbp_path))
+        blend_teams = sum(1 for v in team_vol.values() if not v.prior_only)
         usage_tbl = build_player_game_usage(pbp_path)
         if players_path and snaps_path:
             splits_tbl = build_with_without(
@@ -498,6 +506,9 @@ def run(
     #: indistinguishable from a calm week.
     n_outdoor = 0
     n_wind = 0
+    #: Share of teams whose volume carries any current-season data. Zero before week 1
+    #: is correct; zero in November means the blend is inert again.
+    blend_teams = 0
 
     def skip(reason: str):
         skipped[reason] = skipped.get(reason, 0) + 1
@@ -653,8 +664,14 @@ def run(
 
             adj: list[Adjustment] = []
             if grades is not None and opponent:
+                # The player's own position, so the multiplier uses the same split
+                # the Why panel quotes. Without it the panel said "allows +0.081 EPA
+                # to TEs" while the number that moved was the team-wide average --
+                # and for a TE facing SEA those differ by 6.7 points, in opposite
+                # directions.
                 a = defense_adjustment(opponent, m["market_type"],
-                                       grades[0], grades[1])
+                                       grades[0], grades[1],
+                                       position=xr.get("position"))
                 if a:
                     adj.append(a)
             if pctx is not None:
@@ -855,13 +872,19 @@ def run(
             "share_based_baselines": n_share_based,
             "with_p_inactive": n_p_inactive,
             "with_spread": n_spread,
-            "outdoor_games": n_outdoor, "with_wind": n_wind}
+            "outdoor_games": n_outdoor, "with_wind": n_wind,
+            "teams_with_current_season": blend_teams}
 
 
 def main():
     ap = argparse.ArgumentParser(description="Run projections and emit signals")
     ap.add_argument("--archive", default="data/archive/market_snapshots/**/*.parquet")
-    ap.add_argument("--pbp", default="data/raw/nflverse/pbp_2025.parquet")
+    ap.add_argument("--pbp", default="data/raw/nflverse/pbp_2025.parquet",
+                    help="prior season: the usage and efficiency history")
+    ap.add_argument("--current-pbp", default="data/raw/nflverse/pbp_2026.parquet",
+                    help="current season, blended into team volume as it accumulates. "
+                         "Absent before week 1, which is why the blend must degrade "
+                         "rather than fail.")
     ap.add_argument("--roster", default="data/raw/nflverse/rosters_weekly_2026.parquet")
     ap.add_argument("--players", default="data/raw/nflverse/players.parquet")
     ap.add_argument("--depth", default="data/raw/nflverse/depth_charts_2026.parquet")
@@ -904,6 +927,7 @@ def main():
             mins_before_close=a.mins_before_close,
             allow_preseason=a.allow_preseason,
             allow_backups=a.allow_backups,
+            current_pbp_path=(a.current_pbp if Path(a.current_pbp).exists() else None),
             mode=a.mode,
             max_price_age_mins=a.max_price_age,
             refresh=a.refresh,
@@ -919,7 +943,8 @@ def main():
           f"with_adjustments={adj_n} share_based={r.get('share_based_baselines', 0)} "
           f"with_p_inactive={r.get('with_p_inactive', 0)} "
           f"with_spread={r.get('with_spread', 0)} "
-          f"outdoor={r.get('outdoor_games', 0)} with_wind={r.get('with_wind', 0)}")
+          f"outdoor={r.get('outdoor_games', 0)} with_wind={r.get('with_wind', 0)} "
+          f"teams_current={r.get('teams_with_current_season', 0)}/32")
     census = r.get("census")
     if census:
         print(f"open markets: listed={census['listed']} quoted={census['quoted']} "

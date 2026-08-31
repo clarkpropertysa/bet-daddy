@@ -1665,3 +1665,51 @@ The check script's `sameTeam` assertion was itself an encoding of the wrong assu
 and was rewritten rather than deleted: it now pins that a passer-receiver stack beats
 two backs, that two backs come out negative, and that opposing quarterbacks correlate
 but less than a same-team stack.
+
+---
+
+## The defensive grid reached the explanation but not the projection
+
+`features/defense.py` computes EPA allowed by air-yard band × receiver position — 351
+cells across 32 teams. `defense_adjustment` collapsed it with `kind, _ = side` and an
+unweighted `avg(epa_per_target)` over every cell.
+
+Two errors compounded. The **position split was discarded**, so the Why panel could say
+"SEA allows +0.081 EPA per play against passes to TEs" while the multiplier that moved
+the number was the team-wide mean across every band and position. And **rates were
+averaged rather than weighted**, so a 30-target deep/TE cell counted as much as a
+161-target short/WR cell — discarding the volume weighting the grid exists to enable.
+
+For a tight end facing Seattle in 2025 those disagree by 6.7 points and point opposite
+ways:
+
+| SEA vs | z | multiplier |
+|---|---|---|
+| team-wide | −0.86σ | 0.966 |
+| WR | −1.46σ | 0.942 |
+| **TE** | **+0.83σ** | **1.033** |
+| RB | −0.37σ | 0.985 |
+
+The league comparison is made *within* the same position. If every defence concedes
+more to tight ends that is a property of the position, and z-scoring against a
+mixed-position distribution would read it as universal weakness.
+
+An unresolved position falls back to the team grade rather than dropping the adjustment:
+losing the matchup entirely is worse than using a coarser version of it.
+
+This is the same failure `tests/test_adjustment_wiring.py` was written to prevent —
+an explanation describing something the projection did not do — so the regression test
+asserts the detail string names the split it actually used.
+
+---
+
+## Current-season team volume was never blended in
+
+`build_team_volume(pbp_path)` was called with one argument, so `current_pbp_path` was
+None, the blend weight was 0, and `FULL_WEIGHT_GAMES` never engaged. Team volume was
+100% prior-season shrunk to the league mean — and with `PLAYS_SHRINKAGE = 0.14` that
+means the entire league sat in a **1.3-play band (60.5 to 61.8)**, permanently.
+
+The current season is now passed when the file exists, and `teams_with_current_season`
+is reported out of 32. Zero before week 1 is correct; zero in November means the blend
+has gone inert again.

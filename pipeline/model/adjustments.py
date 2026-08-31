@@ -49,12 +49,30 @@ def defense_adjustment(
     market_type: str,
     pass_grades,
     rush_grades,
+    position: str | None = None,
 ) -> Adjustment | None:
     """Opponent strength as a bounded multiplier, from EPA allowed vs league mean.
 
-    A defense one standard deviation worse than average raises the projection by
-    half the max swing; ±2σ saturates. Saturation matters: without it a single
-    outlier defense produces an unbounded multiplier off a thin sample.
+    A defense one standard deviation worse than average raises the projection by half
+    the max swing; +/-2 sigma saturates. Saturation matters: without it a single outlier
+    defense produces an unbounded multiplier off a thin sample.
+
+    TWO THINGS THIS USED TO GET WRONG.
+
+    **The position split was discarded.** features/defense.py computes a grid of air-yard
+    band x receiver position, and this function collapsed it with `kind, _ = side` and a
+    plain team average. So the Why panel could say "SEA allows +0.081 EPA per play
+    against passes to TEs" while the multiplier that actually moved the number was the
+    team-wide mean across every band and position. Explanation and computation
+    disagreeing is precisely what tests/test_adjustment_wiring.py exists to prevent.
+
+    **Rates were averaged, not weighted.** `avg(epa_per_target)` treats a 30-target
+    deep/TE cell as equal to a 161-target short/WR cell, which throws away the volume
+    weighting the grid was built to enable.
+
+    The league comparison is made WITHIN the same position: if every defense concedes
+    more to tight ends, that is a property of the position, not of any one defense, and
+    z-scoring against a mixed-position distribution would read it as universal weakness.
     """
     side = MARKET_TO_DEFENSE.get(market_type)
     if side is None:
@@ -65,27 +83,41 @@ def defense_adjustment(
     con = duckdb.connect()
     con.register("g", grades)
     metric = "epa_per_target" if kind == "pass" else "epa_per_carry"
-    where = ("where rankable" if kind == "pass"
-             else "where rankable and run_location = 'all'")
+    volume = "targets" if kind == "pass" else "carries"
+    base_where = ("rankable" if kind == "pass"
+                  else "rankable and run_location = 'all'")
 
-    row = con.execute(f"""
-        with agg as (
-            select team, avg({metric}) as epa from g {where} group by team
-        ),
-        stats as (select avg(epa) m, stddev_samp(epa) s from agg)
-        select a.epa, s.m, s.s from agg a, stats s where a.team = ?
-    """, [opponent]).fetchone()
+    # Position-specific first, team-wide as the fallback. A tight end faces a different
+    # defence from a slot receiver and the grid already knows it.
+    scopes = []
+    if kind == "pass" and position:
+        scopes.append(f"{base_where} and receiver_position = '{position}'")
+    scopes.append(base_where)
 
-    if not row or row[2] in (None, 0):
-        return None
-    epa, mean, sd = row
-    z = max(-2.0, min(2.0, (epa - mean) / sd))
-    mult = 1.0 + (z / 2.0) * DEFENSE_MAX_SWING
-    return Adjustment(
-        name="opponent_defense",
-        multiplier=round(mult, 4),
-        detail=f"{opponent} {kind} D at {z:+.2f}σ EPA allowed",
-    )
+    for where in scopes:
+        row = con.execute(f"""
+            with agg as (
+                select team,
+                       sum({metric} * {volume}) / nullif(sum({volume}), 0) as epa,
+                       sum({volume}) as n
+                from g where {where}
+                group by team
+            ),
+            stats as (select avg(epa) m, stddev_samp(epa) s from agg where epa is not null)
+            select a.epa, s.m, s.s, a.n from agg a, stats s where a.team = ?
+        """, [opponent]).fetchone()
+        if row and row[0] is not None and row[2] not in (None, 0):
+            epa, mean, sd, n = row
+            scoped = "and receiver_position" in where
+            z = max(-2.0, min(2.0, (epa - mean) / sd))
+            mult = 1.0 + (z / 2.0) * DEFENSE_MAX_SWING
+            detail = f"{opponent} {kind} D at {z:+.2f}\u03c3 EPA allowed"
+            if scoped:
+                detail += f" to {position}s ({int(n)} targets)"
+            return Adjustment(
+                name="opponent_defense", multiplier=round(mult, 4), detail=detail,
+            )
+    return None
 
 
 def rest_adjustment(days_rest: int | None, is_short_week: bool,
