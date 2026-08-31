@@ -25,6 +25,8 @@ import pyarrow.parquet as pq
 from pipeline.common import config, db, tickers
 from pipeline.features.crosswalk import build_crosswalk
 from pipeline.features.availability import build_inactivity_table, status_lookup
+from pipeline.features.wind import describe as describe_wind, wind_effect
+from pipeline.ingest.weather import forecast_for_game
 from pipeline.features.starters import STARTER_DEPTH, resolve_starters
 from pipeline.model.features_for_projection import (
     InsufficientHistory,
@@ -228,6 +230,52 @@ def _spread_index(schedule_path: str, season: int) -> dict[tuple[str, str], floa
     return out
 
 
+def _apply_wind(tv, wx):
+    """Shift the pass/run split for wind, leaving total plays alone.
+
+    Same contract as the spread: wind changes what a team CHOOSES to do, not how many
+    snaps it gets. The measured play-count effect is r=-0.024, indistinguishable from
+    noise, so inventing one here would be fabricating signal.
+    """
+    if wx is None or wx.pass_rate_delta == 0.0:
+        return tv
+    from pipeline.model.team_volume import TeamVolume
+    rate = max(0.30, min(0.80, tv.pass_rate + wx.pass_rate_delta))
+    return TeamVolume(
+        team=tv.team, plays=tv.plays,
+        pass_attempts=tv.plays * rate, rush_attempts=tv.plays * (1 - rate),
+        pass_rate=rate, games_current=tv.games_current, prior_only=tv.prior_only,
+    )
+
+
+def _venue_index(schedule_path: str, season: int) -> dict[str, tuple]:
+    """game date -> (stadium_id, roof, kickoff UTC). One entry per date+home team.
+
+    Keyed by (date, home_team) because two games can share a date. A blank roof --
+    which nflverse leaves for some retractable venues before kickoff -- is treated as
+    NOT outdoor: guessing "open" would apply a wind adjustment to an indoor game.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        rows = duckdb.connect().execute(f"""
+            select cast(gameday as varchar), home_team, away_team,
+                   stadium_id, roof, cast(gametime as varchar)
+            from read_parquet('{schedule_path}')
+            where season = {int(season)} and gameday is not null
+        """).fetchall()
+    except Exception:
+        return {}
+    out: dict[str, tuple] = {}
+    for day, home, away, sid, roof, gametime in rows:
+        try:
+            ko = _dt.fromisoformat(f"{day}T{gametime or '17:00'}:00").replace(tzinfo=_tz.utc)
+        except ValueError:
+            ko = None
+        for team in (home, away):
+            out[f"{day}|{team}"] = (sid, roof, ko)
+    return out
+
+
 def _rest_context(schedule_path: str, season: int) -> dict:
     """(team, date) -> (days_rest, is_short_week, is_post_bye).
 
@@ -304,7 +352,8 @@ def run(
         return {"markets": 0, "projections": 0, "signals": 0, "skipped": {},
                 "mode": mode, "census": census,
                 "with_adjustments": 0, "share_based_baselines": 0,
-                "with_p_inactive": 0, "with_spread": 0}
+                "with_p_inactive": 0, "with_spread": 0,
+                "outdoor_games": 0, "with_wind": 0}
 
     roster = pq.read_table(roster_path)
 
@@ -317,6 +366,30 @@ def run(
     # skips non-starters silently, so nothing would have surfaced it.
     week_of = _week_index(schedule_path, season) if schedule_path else {}
     spread_of = _spread_index(schedule_path, season) if schedule_path else {}
+    venue_of = _venue_index(schedule_path, season) if schedule_path else {}
+
+    # Wind is the largest single game-context effect measured here: above 20mph pass
+    # rate drops 6.7 points against 2.2 for a full game-script swing, and it hits
+    # efficiency as well as volume. nflverse only backfills weather AFTER kickoff, so
+    # the forecast comes from Open-Meteo. A failed fetch yields None and no
+    # adjustment -- never a silent zero, which would be indistinguishable from calm.
+    _wx: dict[str, object] = {}
+
+    def wind_for(date_key: str | None):
+        if not date_key or date_key not in venue_of:
+            return None
+        sid, roof, ko = venue_of[date_key]
+        # Memoised on the VENUE, not on date|team: both teams in a game share a
+        # stadium, so keying by team would fetch every forecast twice.
+        cache_key = f"{sid}|{ko}"
+        if cache_key not in _wx:
+            try:
+                f = forecast_for_game(sid, roof, ko)
+            except Exception:
+                f = None
+            _wx[cache_key] = wind_effect(f.wind_mph, f.lead_hours) if f else None
+        return _wx[cache_key]
+
     _starters: dict[int | None, dict] = {}
     _absent: dict[int | None, list[str]] = {}
 
@@ -420,6 +493,11 @@ def run(
     n_p_inactive = 0
     #: Projections whose team volume was adjusted for game script.
     n_spread = 0
+    #: Wind is rare by nature, so the guard reports outdoor games SEEN alongside
+    #: adjustments APPLIED. Without both, a broken Open-Meteo fetch is
+    #: indistinguishable from a calm week.
+    n_outdoor = 0
+    n_wind = 0
 
     def skip(reason: str):
         skipped[reason] = skipped.get(reason, 0) + 1
@@ -513,6 +591,11 @@ def run(
             # favourite or a ten-point dog -- while the comment below claimed
             # otherwise.
             team_spread = spread_of.get((game_date, team_code)) if game_date else None
+            wx = wind_for(f"{game_date}|{team_code}") if game_date else None
+            wind_note = describe_wind(wx) if wx else ""
+            # Applied to volume via the pass rate and to efficiency via the simulator.
+            # Rushing is left alone: the measured effect is on the passing game.
+            eff_mult = wx.efficiency_multiplier if wx else 1.0
 
             # Context is loaded BEFORE the adjustments now: recent form is a model
             # input, not just an explanation. It was previously computed only for the
@@ -543,7 +626,7 @@ def run(
             # props to game script: an underdog throws more.
             if model in ("passing_yards", "passing_tds") and team_vol \
                     and team_code in team_vol:
-                tvq = project_for_game(team_vol[team_code], team_spread)
+                tvq = _apply_wind(project_for_game(team_vol[team_code], team_spread), wx)
                 # keep his own share of dropbacks rather than assuming he takes all
                 own = (pi.attempts_per_game / tvq.pass_attempts
                        if tvq.pass_attempts else 0)
@@ -555,7 +638,7 @@ def run(
                         "split_teammate": None, "notes": None})()
 
             if share_metric and team_vol and usage_tbl is not None and team_code in team_vol:
-                tv = project_for_game(team_vol[team_code], team_spread)
+                tv = _apply_wind(project_for_game(team_vol[team_code], team_spread), wx)
                 team_units = (tv.pass_attempts if share_metric == "target_share"
                               else tv.rush_attempts)
                 raw_pg = (pi.targets_per_game if share_metric == "target_share"
@@ -591,7 +674,7 @@ def run(
                                       dispersion=pi.target_dispersion,
                                       p_inactive=p_inactive)
                 out = project_receiving_yards(vp, pi.catch_rate, pi.yards_per_catch,
-                                              [strike], iterations=iterations, seed=seed)
+                                              [strike], efficiency_multiplier=eff_mult, iterations=iterations, seed=seed)
             elif model == "receptions":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.targets_per_game, adj,
@@ -632,7 +715,7 @@ def run(
                                       dispersion=pi.attempt_dispersion,
                                       p_inactive=p_inactive)
                 out = project_passing_yards(vp, pi.completion_rate,
-                                            pi.yards_per_completion, [strike],
+                                            pi.yards_per_completion, [strike], efficiency_multiplier=eff_mult,
                                             iterations=iterations, seed=seed)
             else:
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
@@ -735,6 +818,12 @@ def run(
                     n_p_inactive += 1
                 if team_spread is not None:
                     n_spread += 1
+                if game_date and venue_of.get(f"{game_date}|{team_code}"):
+                    from pipeline.ingest.weather import is_outdoor as _is_out
+                    if _is_out(venue_of[f"{game_date}|{team_code}"][1]):
+                        n_outdoor += 1
+                if wx is not None and wx.is_material:
+                    n_wind += 1
 
                 edge = edge_preview
                 cur.execute(
@@ -765,7 +854,8 @@ def run(
             "with_adjustments": n_with_adj,
             "share_based_baselines": n_share_based,
             "with_p_inactive": n_p_inactive,
-            "with_spread": n_spread}
+            "with_spread": n_spread,
+            "outdoor_games": n_outdoor, "with_wind": n_wind}
 
 
 def main():
@@ -828,7 +918,8 @@ def main():
           f"projections={r['projections']} signals={r['signals']} "
           f"with_adjustments={adj_n} share_based={r.get('share_based_baselines', 0)} "
           f"with_p_inactive={r.get('with_p_inactive', 0)} "
-          f"with_spread={r.get('with_spread', 0)}")
+          f"with_spread={r.get('with_spread', 0)} "
+          f"outdoor={r.get('outdoor_games', 0)} with_wind={r.get('with_wind', 0)}")
     census = r.get("census")
     if census:
         print(f"open markets: listed={census['listed']} quoted={census['quoted']} "

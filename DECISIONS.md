@@ -1530,3 +1530,102 @@ four games rather than reporting "1 of 2", which reads as 50% and means nothing.
 
 The column set follows the position — a quarterback's target share is noise — and falls
 back to inspecting the data rather than trusting the position label when it is missing.
+
+---
+
+## The model was quieter than its own docstrings
+
+**2026-08-31.** Asked what could be added to make the model less boring, the honest
+answer turned out to be: almost nothing, and that was not the problem. Measured first:
+
+| candidate addition | effect |
+|---|---|
+| game context added to volume prediction | R² 0.7164 → 0.7167 (n=11,474) |
+| implied team total added to yards prediction | R² 0.2895 → 0.2913 (n=2,626) |
+| player's own past efficiency → next game | r² = **0.012** receiving, 0.021 rushing |
+| market families not yet modelled | **0 open markets** |
+
+Volume prediction already sits at R²=0.716 and efficiency barely persists, so there is
+nothing for a richer model to find. What an audit *did* find was two live bugs and
+several layers that were built, tested, documented — and never executed.
+
+### Two live bugs
+
+**The injury list accumulated all season.** `injured_out()` selected `distinct gsis_id`
+across the whole file: 726 players in 2025 against 48 in week 1 and 108 in week 18. By
+late season ~186 skill players would have been benched and their backups promoted, and
+the projection skips non-starters *silently*. Harmless only because the 2026 file does
+not exist yet. Starters and absences are now resolved per week, from each market's own
+event date.
+
+**`volume_metric` was read 120 lines before it was assigned.** The first market of every
+run raised `UnboundLocalError` into a bare `except` and lost all context including the
+usage-trend adjustment; every market after inherited the *previous* market's driver, so
+a rushing prop following a receiving prop had its "carries trend" computed from targets.
+`with_adjustments` could not catch it — the adjustment fired, just off the wrong metric.
+Verified on 305 real markets through a rolled-back transaction: `with_adjustments` went
+51/53 → 53/53.
+
+### Layers that never ran
+
+**`p_inactive` was 0.0 on every projection**, and the starter filter only refuses
+Out/Doubtful, so every **Questionable** player was priced as certain to play. Measured
+on zero offensive snaps (not a missing stat line — a WR3 can be active with no
+receptions, which inflates the base rate to 28% even for healthy players):
+
+    Out           any   n=419  100.0%      Questionable  DNP      n= 45  48.9%
+    Questionable  Ltd   n=232   41.8%      Questionable  Full     n= 83  41.0%
+    (none)        Full  n=821   11.9%
+
+On a 60-yard receiving line that moves P(over) from **0.368 to 0.220**. The model had
+been overstating every Questionable player's over by about fifteen points. "Not on the
+report" is kept distinct from "listed with no designation" — 2% against 11.9% —
+because conflating them puts injury risk on every healthy starter in the league.
+
+**The spread never reached the model.** `project_for_game` was called with `None` at both
+sites, so `SPREAD_PASS_RATE_SLOPE` was dead and every pass/run split was the season
+average — while the comment beside the call claimed an underdog throws more. The sign is
+the dangerous half and is verified against outcomes: six-point favourites pass on 53.7%
+of snaps against 59.5% for six-point dogs, correlation −0.200. KC now projects 37.2 pass
+attempts as a 7-point dog and 34.5 as a 7-point favourite.
+
+### Wind, which I wrongly excluded first time
+
+Initially dismissed on availability grounds, conflating that with effect size. The
+effect is real and larger than things already modelled — 1,186 outdoor team-games:
+
+| wind | n | pass rate | yds/att | team pass yds |
+|---|---|---|---|---|
+| 0–4 | 263 | 0.577 | 6.74 | 235.0 |
+| 15–19 | 96 | 0.556 | 6.19 | 206.7 |
+| 20+ | 22 | **0.510** | 6.26 | **189.0** |
+
+Wind ≥20mph moves pass rate 6.7 points against 2.2 for a full game-script swing, and it
+hits **efficiency** too — the channel `efficiency_multiplier` was written for and never
+given a value other than 1.0. Not a stadium confound: demeaning each team against its
+own average, a club in wind 6mph above its own norm passes 1.48pp less and throws for
+19.7 fewer yards (n=120, 32 teams).
+
+The linear r² is 0.006 only because 68% of outdoor games sit under 10mph — a single
+coefficient averages the effect away across games with no wind. Modelled as bands.
+
+**The availability objection was half right.** nflverse backfills weather *after*
+kickoff (2025 fully populated, 2026 zero of 272), so it cannot price a market. Open-Meteo
+can: free, no key, 16-day hourly horizon, verified live. Coefficients are fitted on
+*actual* wind and applied to a *forecast*, so they are shrunk by lead time — a
+deliberate under-application, because being half-right about a 27-yard effect beats
+being confidently wrong about it.
+
+Three guards, each pinned by a test: a failed fetch returns None and applies nothing
+(a silent zero is indistinguishable from calm, which is exactly how the other layers
+died); domes are never adjusted; an unknown stadium yields nothing rather than a guess.
+The coordinate table is checked against the real schedule in both directions — no
+outdoor venue missing, no phantom key implying coverage that does not exist.
+
+### The pattern
+
+Four layers, all dead the same way: written, tested, documented, never called, and
+invisible because absence looks exactly like "no effect this week". Every one wired here
+now reports a counter — `with_p_inactive`, `with_spread`, `outdoor_games`/`with_wind` —
+and wind reports games *seen* alongside adjustments *applied*, because a calm week and a
+broken forecast are otherwise the same number.
