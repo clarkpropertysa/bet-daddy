@@ -1802,3 +1802,38 @@ Now wired in two places:
 
 A missing or malformed file still passes — the guard has to catch leakage without
 becoming a new way for the pipeline to die.
+
+---
+
+## Top Picks: two of the three kinds asked for
+
+The request was props, spreads, and over/unders. Two of those exist; the third was
+measured and refused.
+
+**Ranked within each kind, never across.** A prop edge is cents per contract after
+fees; a game lean is points of disagreement. Combining them into one score would hide
+which is which, and the combining weight would be invented.
+
+**Spreads exposed the sharper bug.** `GameLean.confident` means the model projects a
+meaningful MARGIN — not that it disagrees with the market. Ranking on it put a
+**1.9-point disagreement** at the top of the list. And `disagreement = margin −
+market_spread`, both from the home team's perspective, so a **negative** value means the
+model likes the home team LESS than the market does — and the side with value is the
+*away* team. The first version named `leanTeam`, which would have recommended the exact
+team the model was fading. ARI at LAC is the clean example: the model has LAC by 5.1
+against a market spread of 10.5, so the play is **ARI +10.5**, not LAC.
+
+Picks are now gated on |disagreement| ≥ 3.5 and the side is derived from its sign.
+
+**Over/unders are deliberately absent, and the page says so with the numbers.**
+
+- Across 1,087 games the closing total misses the actual score by **13.0 points**,
+  against 13.6 for always guessing the league average — the market itself explains only
+  **8.7%** of the variance in game totals.
+- Adding this model's team ratings to that line improves the error by **0.027 points**,
+  and the fitted coefficient comes out with the **wrong sign** — the signature of
+  fitting noise.
+
+A total pick would be a coin flip presented as a read. The section states the benchmark
+that would have to be beaten for it to become real, so the absence is a finding rather
+than a gap.
