@@ -24,6 +24,7 @@ import pyarrow.parquet as pq
 
 from pipeline.common import config, db, tickers
 from pipeline.features.crosswalk import build_crosswalk
+from pipeline.features.availability import build_inactivity_table, status_lookup
 from pipeline.features.starters import STARTER_DEPTH, resolve_starters
 from pipeline.model.features_for_projection import (
     InsufficientHistory,
@@ -276,7 +277,8 @@ def run(
     if not markets:
         return {"markets": 0, "projections": 0, "signals": 0, "skipped": {},
                 "mode": mode, "census": census,
-                "with_adjustments": 0, "share_based_baselines": 0}
+                "with_adjustments": 0, "share_based_baselines": 0,
+                "with_p_inactive": 0}
 
     roster = pq.read_table(roster_path)
 
@@ -298,6 +300,28 @@ def run(
                 if depth_path else {}
             )
         return _starters[wk]
+
+    # P(no offensive snap), measured rather than assumed. VolumeProjection has carried
+    # a p_inactive field since the simulator was written and it has never been set, so
+    # every prop has been priced as though the player is certain to play -- no left
+    # tail at all, on the single largest risk a yardage line carries.
+    inactivity = None
+    if injuries_path and snaps_path and players_path:
+        try:
+            inactivity = build_inactivity_table(
+                injuries_path, snaps_path, players_path, season)
+        except Exception:
+            inactivity = None
+
+    _status: dict[int | None, dict] = {}
+
+    def status_for(wk: int | None) -> dict:
+        if wk not in _status:
+            _status[wk] = (
+                status_lookup(injuries_path, season, wk)
+                if injuries_path and wk is not None else {}
+            )
+        return _status[wk]
 
     def absent_for(wk: int | None) -> list[str]:
         """Teammates ruled out this week, so a with/without split can move a share."""
@@ -363,6 +387,10 @@ def run(
     # Reported for the same reason as with_adjustments: a modelling layer that stops
     # being reached looks identical to one that is working.
     n_share_based = 0
+    # How many projections carry a non-zero DNP mass. Reported for the same reason as
+    # with_adjustments: a layer that stops being reached looks identical to one that
+    # is working. p_inactive in particular was dead from the day it was written.
+    n_p_inactive = 0
 
     def skip(reason: str):
         skipped[reason] = skipped.get(reason, 0) + 1
@@ -422,6 +450,13 @@ def run(
             game_week = week_of.get(_event_date(m["market_ticker"]))
             depth = starters_for(game_week)
             absent_ids = absent_for(game_week)
+            # A Questionable player has roughly a 40% chance of taking no offensive
+            # snap; the starter filter only refuses Out/Doubtful, so without this he
+            # is projected as a certainty.
+            p_inactive = 0.0
+            if inactivity is not None and not inactivity.is_empty:
+                p_inactive = inactivity.for_player(
+                    status_for(game_week).get(xr["gsis_id"]))
 
             # A backup's baseline describes a role he no longer holds. Refuse rather
             # than project it: the market knows he is behind someone, our usage
@@ -517,19 +552,22 @@ def run(
             if model == "receiving_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.targets_per_game, adj,
-                                      dispersion=pi.target_dispersion)
+                                      dispersion=pi.target_dispersion,
+                                      p_inactive=p_inactive)
                 out = project_receiving_yards(vp, pi.catch_rate, pi.yards_per_catch,
                                               [strike], iterations=iterations, seed=seed)
             elif model == "receptions":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.targets_per_game, adj,
-                                      dispersion=pi.target_dispersion)
+                                      dispersion=pi.target_dispersion,
+                                      p_inactive=p_inactive)
                 out = project_receptions(vp, pi.catch_rate, [strike],
                                          iterations=iterations, seed=seed)
             elif model == "rushing_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.carries_per_game, adj,
-                                      dispersion=pi.carry_dispersion)
+                                      dispersion=pi.carry_dispersion,
+                                      p_inactive=p_inactive)
                 out = project_rushing_yards(vp, pi.yards_per_carry, [strike],
                                             iterations=iterations, seed=seed)
             elif model == "anytime_td":
@@ -555,14 +593,16 @@ def run(
             elif model == "passing_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       pi.attempts_per_game, adj,
-                                      dispersion=pi.attempt_dispersion)
+                                      dispersion=pi.attempt_dispersion,
+                                      p_inactive=p_inactive)
                 out = project_passing_yards(vp, pi.completion_rate,
                                             pi.yards_per_completion, [strike],
                                             iterations=iterations, seed=seed)
             else:
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       pi.attempts_per_game, adj,
-                                      dispersion=pi.attempt_dispersion)
+                                      dispersion=pi.attempt_dispersion,
+                                      p_inactive=p_inactive)
                 out = project_passing_tds(vp, pi.pass_td_rate, [strike],
                                           iterations=iterations, seed=seed)
 
@@ -655,6 +695,8 @@ def run(
                      price_as_of, "model", now),
                 )
                 n_proj += 1
+                if p_inactive > 0:
+                    n_p_inactive += 1
 
                 edge = edge_preview
                 cur.execute(
@@ -683,7 +725,8 @@ def run(
             "signals": n_sig, "skipped": skipped,
             "mode": mode, "census": census,
             "with_adjustments": n_with_adj,
-            "share_based_baselines": n_share_based}
+            "share_based_baselines": n_share_based,
+            "with_p_inactive": n_p_inactive}
 
 
 def main():
@@ -744,7 +787,8 @@ def main():
     adj_n = r.get("with_adjustments", 0)
     print(f"mode={r.get('mode')} markets={r['markets']} "
           f"projections={r['projections']} signals={r['signals']} "
-          f"with_adjustments={adj_n} share_based={r.get('share_based_baselines', 0)}")
+          f"with_adjustments={adj_n} share_based={r.get('share_based_baselines', 0)} "
+          f"with_p_inactive={r.get('with_p_inactive', 0)}")
     census = r.get("census")
     if census:
         print(f"open markets: listed={census['listed']} quoted={census['quoted']} "
@@ -756,6 +800,11 @@ def main():
         elif census["quoted"] and not census["fresh"]:
             print("  WARNING: every quote is older than the freshness limit. The "
                   "archiver has probably stopped -- check the archive-markets job.")
+    if r["signals"] and r.get("with_p_inactive", 0) == 0:
+        print("  WARNING: no projection carries a DNP probability. Either no injury "
+              "report is published yet, or the availability table failed to build -- "
+              "the two look identical from here, so check that injuries and snap "
+              "counts are both present.")
     if r["signals"] and adj_n == 0:
         print("  WARNING: no signal carries an adjustment. The matchup layer is "
               "inert -- check that grades loaded and opponents resolved.")
