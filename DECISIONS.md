@@ -1834,6 +1834,15 @@ Picks are now gated on |disagreement| ≥ 3.5 and the side is derived from its s
   and the fitted coefficient comes out with the **wrong sign** — the signature of
   fitting noise.
 
-A total pick would be a coin flip presented as a read. The section states the benchmark
-that would have to be beaten for it to become real, so the absence is a finding rather
-than a gap.
+A total pick would be a coin flip presented as a read.
+
+**Shown as context instead.** The section lists the market's total per game with the
+**implied team totals** derived from it — `total / 2 +/- spread / 2` — which is the half
+that bears on a prop: a receiver on a team implied for 30 points has more to play for
+than one on a team implied for 17. Nothing else in the app derives that number.
+
+Wind is shown where the schedule carries it, but not as an edge. Measured on 595 outdoor
+games, those above 15mph land **0.9 points under** the closing line and games under
+10mph land 1.4 over — directionally right, tiny, and on 59 games. The market prices
+weather already; the honest use of a wind forecast here is describing conditions, not
+claiming a mispricing.

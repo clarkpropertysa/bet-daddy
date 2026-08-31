@@ -56,6 +56,29 @@ export default async function TopPicksPage() {
     .sort((a, b) => b.gap - a.gap)
     .slice(0, 6);
 
+  /**
+   * Scoring environment, straight from the market. The implied team totals are the
+   * half that bears on a prop: total/2 +/- spread/2 is what each side is expected to
+   * score, and nothing else in the app derives it.
+   */
+  const totals = slate
+    .filter((g) => g.totalLine !== null && g.spreadLine !== null)
+    .map((g) => {
+      const total = g.totalLine as number;
+      const spread = g.spreadLine as number;   // positive = home favoured
+      return {
+        gameId: g.gameId,
+        home: g.homeTeam,
+        away: g.awayTeam,
+        total,
+        homeImplied: total / 2 + spread / 2,
+        awayImplied: total / 2 - spread / 2,
+        roof: g.roof,
+        wind: g.windMph,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+
   const archiver = health.find((h) => h.job === "kalshi_archiver");
   const newestPrice = props.reduce<Date | null>((acc, r) => {
     const t = r.priceAsOf ? new Date(r.priceAsOf) : null;
@@ -190,39 +213,74 @@ export default async function TopPicksPage() {
       {/* ---------------------------------------------------------------- totals */}
       <section>
         <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h2 className="display text-[14px] text-ink">Over/unders</h2>
-          <span className="eyebrow">deliberately absent</span>
+          <h2 className="display text-[14px] text-ink">Scoring environment</h2>
+          <span className="eyebrow">context, not a pick</span>
         </div>
-        <div className="rounded border border-dashed border-line-2 bg-card px-4 py-4">
-          <p className="text-[12px] leading-relaxed text-ink-2">
-            There are no total picks here because the model cannot beat the market on
-            totals, and it was measured rather than assumed.
-          </p>
-          <ul className="mt-2 space-y-1 text-[11.5px] leading-relaxed text-ink-3">
-            <li>
-              Across 1,087 games the closing total misses the actual score by{" "}
-              <strong className="font-medium text-ink-2">13.0 points</strong>, against{" "}
-              13.6 for always guessing the league average — so the market itself
-              explains only <strong className="font-medium text-ink-2">8.7%</strong> of
-              the variance in game totals.
-            </li>
-            <li>
-              Adding this model&apos;s team ratings to that line improves the error by{" "}
-              <strong className="font-medium text-ink-2">0.027 points</strong>, and the
-              fitted coefficient comes out with the wrong sign — the signature of
-              fitting noise.
-            </li>
-          </ul>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-2">
-            A total pick would therefore be a coin flip presented as a read. The market
-            total still appears on the{" "}
-            <Link href="/" className="text-steel underline-offset-2 hover:underline">
-              Slate
-            </Link>{" "}
-            as context. This section becomes real if a projection ever beats that
-            13.0-point benchmark out of sample.
-          </p>
-        </div>
+
+        {totals.length === 0 ? (
+          <Empty
+            title="No lines posted yet"
+            source="nflverse schedules"
+            hint="Totals and spreads appear as the market posts them, usually a few days out."
+          />
+        ) : (
+          <>
+            <div className="overflow-x-auto rounded border border-line bg-card">
+              <table className="w-full min-w-[440px] text-[12px]">
+                <thead>
+                  <tr className="border-b border-line text-left">
+                    <th className="px-3 py-2 font-medium text-ink-3">Game</th>
+                    <th className="px-3 py-2 font-medium text-ink-3">Total</th>
+                    <th className="px-3 py-2 font-medium text-ink-3">Implied</th>
+                    <th className="px-3 py-2 font-medium text-ink-3">Venue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {totals.map((t) => (
+                    <tr key={t.gameId} className="border-b border-line-2 last:border-0">
+                      <td className="px-3 py-2 text-ink">
+                        {t.away} @ {t.home}
+                      </td>
+                      <td className="px-3 py-2 font-medium text-ink">
+                        {t.total.toFixed(1)}
+                      </td>
+                      {/* The half that matters for a prop: how many points each side
+                          is expected to score, not the game total. */}
+                      <td className="px-3 py-2 text-ink-2">
+                        {t.away} {t.awayImplied.toFixed(1)} · {t.home}{" "}
+                        {t.homeImplied.toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 text-ink-3">
+                        {t.roof === "dome" || t.roof === "closed" ? "indoors" : "outdoors"}
+                        {t.wind !== null ? ` · ${Math.round(t.wind)}mph` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+              These are the <strong className="font-medium text-ink-2">market&apos;s</strong>{" "}
+              numbers, not the model&apos;s, and there is no over/under pick here on
+              purpose. Measured across 1,087 games, the closing total misses the actual
+              score by <strong className="font-medium text-ink-2">13.0 points</strong>{" "}
+              against 13.6 for always guessing the league average — the market explains
+              only <strong className="font-medium text-ink-2">8.7%</strong> of the
+              variance in game totals, and adding this model&apos;s team ratings improves
+              that by 0.027 points with the coefficient the wrong sign. A total pick
+              would be a coin flip presented as a read.
+            </p>
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-3">
+              The <strong className="font-medium text-ink-2">implied</strong> column is
+              the useful part: <span className="text-ink-2">total ÷ 2 ± spread ÷ 2</span>{" "}
+              is how many points each side is expected to score, and a receiver on a team
+              implied for 30 has more to play for than one on a team implied for 17.
+              Wind is shown where the schedule carries it, though the market prices it
+              already — outdoor games above 15mph land just 0.9 points under the line.
+            </p>
+          </>
+        )}
       </section>
     </div>
   );
