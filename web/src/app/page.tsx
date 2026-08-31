@@ -26,7 +26,6 @@ export default async function SlatePage() {
   return (
     <div>
       <PageHeader
-        index="00"
         title="Slate"
         sub="What is worth looking at, before any individual prop: who plays, on what rest, in what conditions, and how much scoring the market expects."
         right={

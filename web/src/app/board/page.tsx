@@ -38,7 +38,6 @@ export default async function BoardPage({
   return (
     <div>
       <PageHeader
-        index="01"
         title="Prop Board"
         sub="What the model thinks will happen, and how far that sits from the market. Sorted by how much the gap is worth after fees — gross edge is not a bet. Click any row for the reasoning behind it."
         right={

@@ -70,7 +70,6 @@ export default async function PlayerPage({
   return (
     <div>
       <PageHeader
-        index="02"
         title={player.fullName}
         sub={
           [
