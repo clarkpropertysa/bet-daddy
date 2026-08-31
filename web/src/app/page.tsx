@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { SlateGames, TopEdges } from "@/components/SlateBoard";
+import { ConsensusNote } from "@/components/ConsensusNote";
 import { StaleBanner } from "@/components/StaleBanner";
-import { getJobHealth, getNextSlate, getTopEdges } from "@/lib/queries";
+import { getConsensusSummary, getJobHealth, getNextSlate, getTopEdges } from "@/lib/queries";
 import { relativeAge } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +14,8 @@ export const dynamic = "force-dynamic";
  * conditions, with how much the market expects to happen.
  */
 export default async function SlatePage() {
-  const [games, edges, health] = await Promise.all([
-    getNextSlate(), getTopEdges(), getJobHealth(),
+  const [games, edges, health, consensus] = await Promise.all([
+    getNextSlate(), getTopEdges(), getJobHealth(), getConsensusSummary(),
   ]);
 
   const first = games[0]?.gameDate;
@@ -40,6 +41,8 @@ export default async function SlatePage() {
           />
         }
       />
+
+      <ConsensusNote summary={consensus} />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div>

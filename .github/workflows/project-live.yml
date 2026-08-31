@@ -62,3 +62,10 @@ jobs:
             --mode live \
             --refresh \
             --depth data/raw/nflverse/depth_charts_2026.parquet
+
+      # Reference only -- never produces a Signal. Answers D8's revisit trigger:
+      # is this venue's pricing drifting from the wider market?
+      - name: Compare game markets to the sportsbook consensus
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m pipeline.ingest.game_markets --season 2026 || true

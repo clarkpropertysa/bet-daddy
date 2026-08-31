@@ -231,6 +231,9 @@ export async function getClvSummary() {
 
 export type PlayerRow = {
   id: string;
+  /** The detail route key. Player.id is formatted `nfl:00-0041087` and the colon needs
+   *  URL-encoding; gsisId is already unique and URL-safe. */
+  gsisId: string | null;
   fullName: string;
   position: string | null;
   headshotUrl: string | null;
@@ -249,7 +252,7 @@ export type PlayerRow = {
  */
 export async function getPlayers(limit = 1200): Promise<PlayerRow[]> {
   return prisma.$queryRaw<PlayerRow[]>`
-    select p.id, p."fullName", p.position, p."headshotUrl", t.abbrev as team,
+    select p.id, p."gsisId", p."fullName", p.position, p."headshotUrl", t.abbrev as team,
            p."depthPos", p."depthRank", p."isStarter", p."promotedFor"
     from "Player" p
     left join "Team" t on t.id = p."teamId"
@@ -403,4 +406,218 @@ export async function getTopEdges(limit = 6) {
     order by l."edgeCentsNet" desc
     limit ${limit}
   `;
+}
+
+
+// ---------------------------------------------------------------- player detail
+
+export type PlayerDetail = {
+  id: string;
+  gsisId: string;
+  fullName: string;
+  position: string | null;
+  headshotUrl: string | null;
+  team: string | null;
+  teamName: string | null;
+  depthPos: string | null;
+  depthRank: number | null;
+  isStarter: boolean;
+  promotedFor: string | null;
+};
+
+export type GameLogRow = {
+  gameId: string;
+  season: number;
+  week: number;
+  team: string;
+  opponent: string | null;
+  offensePct: number | null;
+  targets: number | null;
+  receptions: number | null;
+  receivingYards: number | null;
+  receivingTds: number | null;
+  carries: number | null;
+  rushingYards: number | null;
+  rushingTds: number | null;
+  passingYards: number | null;
+  passingTds: number | null;
+  interceptions: number | null;
+  targetShare: number | null;
+  carryShare: number | null;
+  wopr: number | null;
+};
+
+export type SplitRow = {
+  teammate: string;
+  teammateHeadshot: string | null;
+  metric: string;
+  nWith: number;
+  nWithout: number;
+  meanWith: number;
+  meanWithout: number;
+  delta: number;
+  ciLow: number;
+  ciHigh: number;
+};
+
+export async function getPlayer(gsisId: string): Promise<PlayerDetail | null> {
+  const rows = await prisma.$queryRaw<PlayerDetail[]>`
+    select p.id, p."gsisId", p."fullName", p.position, p."headshotUrl",
+           t.abbrev as team, t.name as "teamName",
+           p."depthPos", p."depthRank", p."isStarter", p."promotedFor"
+    from "Player" p
+    left join "Team" t on t.id = p."teamId"
+    where p."gsisId" = ${gsisId}
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
+/** Every synced game, most recent first. */
+export async function getPlayerGameLog(gsisId: string): Promise<GameLogRow[]> {
+  return prisma.$queryRaw<GameLogRow[]>`
+    select s."gameId", s.season, s.week, s.team, s.opponent,
+           s."offensePct"::float8     as "offensePct",
+           s.targets, s.receptions,
+           s."receivingYards"::float8 as "receivingYards",
+           s."receivingTds",
+           s.carries,
+           s."rushingYards"::float8   as "rushingYards",
+           s."rushingTds",
+           s."passingYards"::float8   as "passingYards",
+           s."passingTds", s.interceptions,
+           s."targetShare"::float8    as "targetShare",
+           s."carryShare"::float8     as "carryShare",
+           s.wopr::float8             as wopr
+    from "PlayerGameStat" s
+    join "Player" p on p.id = s."playerId"
+    where p."gsisId" = ${gsisId}
+    order by s.season desc, s.week desc
+  `;
+}
+
+/**
+ * Only splits that clear BOTH gates.
+ *
+ * The gates were decided in features/splits.py and are stored on the row; this filters
+ * on them rather than re-deriving them, the same contract player_volume.py honours. Of
+ * ~6,200 computed pairs about 84 qualify -- a teammate's absence is usually confounded
+ * with everything else that changed that week, and saying so is more useful than
+ * showing a number that cannot carry the weight.
+ */
+export async function getPlayerSplits(gsisId: string): Promise<SplitRow[]> {
+  return prisma.$queryRaw<SplitRow[]>`
+    select tm."fullName" as teammate,
+           tm."headshotUrl" as "teammateHeadshot",
+           sp.metric,
+           sp."nWith", sp."nWithout",
+           sp."meanWith"::float8    as "meanWith",
+           sp."meanWithout"::float8 as "meanWithout",
+           sp.delta::float8         as delta,
+           sp."ciLow"::float8       as "ciLow",
+           sp."ciHigh"::float8      as "ciHigh"
+    from "PlayerSplit" sp
+    join "Player" p on p.id = sp."playerId"
+    -- INNER join, deliberately. 16 of 84 trustworthy splits name a teammate who played
+    -- last season but is on no current roster -- retired, cut or unsigned. That effect
+    -- cannot recur, and it cannot be checked against an injury report, so it cannot
+    -- inform a bet. Rendering it as "a teammate" was worse than omitting it.
+    join "Player" tm on tm.id = sp."teammateId"
+    where p."gsisId" = ${gsisId}
+      and sp.significant = true and sp.suppressed = false
+    order by abs(sp.delta) desc
+  `;
+}
+
+/** This player's open markets, repriced against the live book exactly as the board is. */
+export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
+  const rows = await prisma.$queryRaw<BoardRow[]>`
+    with latest as (
+      select distinct on (s."marketTicker") s.*
+      from "Signal" s
+      join "Projection" pr on pr.id = s."projectionId"
+      join "Player" p on p.id = pr."playerId"
+      where s."closeTime" > now() and p."gsisId" = ${gsisId}
+      order by s."marketTicker", s."runTs" desc
+    )
+    select
+      l.id as "signalId", l."marketTicker" as "marketTicker",
+      coalesce(p."fullName", 'unresolved') as player,
+      p."headshotUrl" as "headshotUrl", p.position as position,
+      p."depthPos" as "depthPos", p."depthRank" as "depthRank",
+      p."isStarter" as "isStarter",
+      t.abbrev as team, pr."marketType" as "marketType", pr."gameId" as "gameId",
+      nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
+      l.side as side,
+      l."modelProb"::float8 as "modelProb", l."marketProb"::float8 as "marketProb",
+      l."feeCents"::float8 as "feeCents", l."edgeCentsNet"::float8 as "edgeCentsNet",
+      l."kellyFraction"::float8 as kelly, l.tier::text as tier, l."sampleN" as "sampleN",
+      l."runTs" as "runTs", l."closeTime" as "closeTime", l."priceAsOf" as "priceAsOf",
+      pr."pOverByStrike" as "pOverByStrike",
+      l.reason as reason,
+      coalesce((l.reason->>'implausible')::boolean, false) as implausible,
+      l."modelVersion" as "modelVersion"
+    from latest l
+    join "Projection" pr on pr.id = l."projectionId"
+    left join "Player" p on p.id = pr."playerId"
+    left join "Team" t on t.id = p."teamId"
+  `;
+  const book = await getLiveQuotes();
+  return rows.map((r) => reprice(r, book)).sort((a, b) => b.edgeCentsNet - a.edgeCentsNet);
+}
+
+// ---------------------------------------------------------------- consensus check
+
+export type ConsensusSummary = {
+  games: number;
+  quoted: number;
+  meanAbsDiffPts: number | null;
+  meanDiffPts: number | null;
+  maxAbsDiffPts: number | null;
+  ranAt: Date | null;
+};
+
+/**
+ * Kalshi's game prices against the sportsbook consensus. REFERENCE ONLY.
+ *
+ * This is DECISIONS.md D8's revisit criterion rendered: "revisit [paid odds data] if the
+ * archive shows Kalshi pricing diverging from consensus." Large mean absolute divergence
+ * is the evidence that paying for prop consensus would be worth it; small is the
+ * evidence it would not.
+ *
+ * Reports mean ABSOLUTE divergence next to the signed mean, because the signed mean is
+ * near zero whenever Kalshi is noisy but unbiased -- which reads as agreement and is the
+ * opposite of what noise means to someone taking those prices.
+ */
+export async function getConsensusSummary(): Promise<ConsensusSummary | null> {
+  const rows = await prisma.$queryRaw<
+    {
+      games: bigint; quoted: bigint;
+      mean_abs: number | null; mean_signed: number | null; max_abs: number | null;
+      ran_at: Date | null;
+    }[]
+  >`
+    with latest as (
+      select distinct on ("gameId") *
+      from "GameMarketCompare"
+      order by "gameId", ts desc
+    )
+    select count(*)                                         as games,
+           count(*) filter (where "kalshiQuoted")           as quoted,
+           avg(abs("diffPts"))::float8                      as mean_abs,
+           avg("diffPts")::float8                           as mean_signed,
+           max(abs("diffPts"))::float8                      as max_abs,
+           max(ts)                                          as ran_at
+    from latest
+  `;
+  const r = rows[0];
+  if (!r || Number(r.games) === 0) return null;
+  return {
+    games: Number(r.games),
+    quoted: Number(r.quoted),
+    meanAbsDiffPts: r.mean_abs,
+    meanDiffPts: r.mean_signed,
+    maxAbsDiffPts: r.max_abs,
+    ranAt: r.ran_at,
+  };
 }

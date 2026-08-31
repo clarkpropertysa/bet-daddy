@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import type { PlayerRow } from "@/lib/queries";
@@ -62,9 +63,16 @@ export function PlayerGrid({ players }: { players: PlayerRow[] }) {
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {shown.map((p) => (
-          <div
+        {shown.map((p) => {
+          // Keyed on gsisId, not id: Player.id is `nfl:00-0041087` and the colon needs
+          // encoding. A player with no gsisId has no detail page to open, so he stays a
+          // plain cell rather than a link to a 404.
+          const Cell = p.gsisId ? Link : "div";
+          const cellProps = p.gsisId ? { href: `/players/${p.gsisId}` } : {};
+          return (
+          <Cell
             key={p.id}
+            {...(cellProps as { href: string })}
             className={`flex items-center gap-2.5 rounded border bg-card p-2.5 transition-colors hover:border-steel hover:bg-steel-100 ${
               p.promotedFor ? "border-warn/50" : "border-line"
             }`}
@@ -86,8 +94,9 @@ export function PlayerGrid({ players }: { players: PlayerRow[] }) {
                 </div>
               )}
             </div>
-          </div>
-        ))}
+          </Cell>
+          );
+        })}
       </div>
 
       {shown.length === 0 && (

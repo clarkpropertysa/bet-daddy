@@ -1498,3 +1498,35 @@ trustworthy split" rather than rendering a blank.
 `executemany`, not a loop of `execute`: row-by-row over a network connection took minutes
 for 11k rows and would have timed out in CI. Reconciled against the source — Ja'Marr
 Chase, 2025 week 2: 16 targets, 14 receptions, 165 yards, 1 TD.
+
+---
+
+## Player pages, and the season they are actually describing
+
+Players are clickable, keyed on `gsisId` rather than `Player.id` — ids are formatted
+`nfl:00-0041087` and the colon needs URL-encoding. A player with no gsisId renders as a
+plain cell rather than a link to a 404.
+
+The page reuses rather than reinvents: `WhyPanel` for the reasoning behind each open
+market (the full stored `reason` payload already round-trips through Postgres),
+`reprice()` so a player's edges match the board exactly, and `Sparkline` — which had been
+written, committed, and imported nowhere until now.
+
+**The season is stated, never implied.** 2026 has no games played, so every game log
+shows 2025. For a player who has changed team that describes a job he no longer holds —
+the same failure the starter filter exists to prevent. Where the logged team differs from
+the current roster team the page says so outright: *"The history below was accumulated at
+TB, and Mike Evans is now listed with SF."*
+
+**Splits against departed players are excluded.** 16 of the 84 trustworthy splits name a
+teammate who played in 2025 but is on no 2026 roster. Rendered with the fallback label
+those read "With a teammate out, his target share rises 13.8 points" — an effect that
+cannot recur and cannot be checked against an injury report. Unactionable, so omitted,
+and the empty state says why.
+
+**The hit rate keeps `rationale.py`'s framing verbatim: context, not the reason.** It is
+computed with a strict `>` to match how the market settles, and returns nothing below
+four games rather than reporting "1 of 2", which reads as 50% and means nothing.
+
+The column set follows the position — a quarterback's target share is noise — and falls
+back to inspecting the data rather than trusting the position label when it is missing.
