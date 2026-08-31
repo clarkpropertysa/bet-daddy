@@ -1744,3 +1744,61 @@ at 2.5% rather than 10%.
 This one could not have been evaluated before the `volume_metric` fix: the trend was
 being computed from the wrong volume driver on every market after the first, so any
 measurement of its value would have been measuring noise.
+
+---
+
+## Anytime touchdown: the module argued for goal line, then priced red zone
+
+`anytime_td.py` opens by saying *"a back with 4 carries inside the 5 is a better
+anytime-TD bet than one with 20 carries between the 20s."* It then computed
+`gl_touches_per_game`, never read it, and simulated from a single pooled red-zone rate.
+
+Measured over 2025, the pooling destroys the distinction it was written to make:
+
+| zone | touches | TD rate | share of all TDs |
+|---|---|---|---|
+| inside the 5 | 1,240 | **0.437** | 40.0% |
+| 6 to 20 | 3,589 | **0.131** | 34.8% |
+| outside the 20 | 25,948 | 0.013 | **25.2%** |
+
+Two separate errors. A goal-line touch scores **3.3×** more often than a red-zone touch
+outside the five, and the model averaged them together. And **a quarter of all offensive
+touchdowns are scored outside the 20** — which the model could not produce at all,
+because it only counted red-zone touches.
+
+The zones also interact with position, so baselines are keyed on both: a back converts
+0.386 at the goal line and 0.073 in the rest of the red zone, while a receiver converts
+0.453 and 0.185, and a receiver is 2.6× more dangerous than a back in the open field.
+One rate per position cannot say that.
+
+**Shrunk, not switched.** The first rewrite kept a hard 25-touch threshold and promptly
+produced its own artefact: Derrick Henry went 0-for-38 outside the five, cleared the
+threshold, and was assigned a conversion rate of exactly 0.000 — the model asserting he
+could never score from there. Every other small-sample estimate in this project is
+shrunk; this one was not. It now blends toward the positional baseline with a 25-touch
+pseudo-count, and nobody is assigned an impossible zero.
+
+The Why panel gets one row per zone, so it shows *where* the probability comes from
+instead of a single pooled number.
+
+---
+
+## A guard that never runs is not a guard
+
+`point_in_time.py` was written, documented, tested — and imported by nothing outside its
+own test file. Its docstring names the stakes exactly: *"a leaky backtest looks like a
+brilliant model."* The protection it describes did not exist.
+
+Now wired in two places:
+
+- **Per market:** the price being modelled against must predate kickoff. In live mode
+  the close-time filter makes this nearly impossible; in settled mode it is the entire
+  integrity question, because a snapshot taken after kickoff prices a game whose result
+  is already known. Refused as `leakage_price_after_kickoff` rather than crashing.
+- **At startup:** if the current-season play-by-play already contains a game on the
+  slate, the run **fails**. That blend feeds team volume, so a file holding the game
+  being priced means the model is reading the answer. This one is fatal rather than a
+  warning precisely because the symptom is a model that looks excellent.
+
+A missing or malformed file still passes — the guard has to catch leakage without
+becoming a new way for the pipeline to die.

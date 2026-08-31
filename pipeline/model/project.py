@@ -24,6 +24,10 @@ import pyarrow.parquet as pq
 
 from pipeline.common import config, db, tickers
 from pipeline.features.crosswalk import build_crosswalk
+from pipeline.backtest.point_in_time import (
+    LeakageError,
+    assert_features_predate_kickoff,
+)
 from pipeline.features.availability import build_inactivity_table, status_lookup
 from pipeline.features.wind import describe as describe_wind, wind_effect
 from pipeline.ingest.weather import forecast_for_game
@@ -228,6 +232,41 @@ def _spread_index(schedule_path: str, season: int) -> dict[tuple[str, str], floa
         out[(day, home)] = float(sp)
         out[(day, away)] = -float(sp)
     return out
+
+
+def _assert_pbp_predates_slate(current_pbp_path: str, markets: list, venue_of: dict) -> None:
+    """Refuse to run if the current-season play-by-play contains a game being projected.
+
+    Blends current-season team volume into the projection, so if that file already
+    holds the game we are pricing, the model is reading the answer. A leaky model looks
+    like a brilliant one, which is exactly why this fails the run rather than warning.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
+    kickoffs = [
+        venue_of[k][2] for k in venue_of if venue_of.get(k) and venue_of[k][2] is not None
+    ]
+    if not kickoffs:
+        return
+    earliest = min(kickoffs)
+    try:
+        last_played = duckdb.connect().execute(f"""
+            select max(cast(game_date as varchar)) from read_parquet('{current_pbp_path}')
+        """).fetchone()[0]
+    except Exception:
+        return              # no such column or no file: nothing to assert against
+    if not last_played:
+        return
+    try:
+        last_dt = _dt.fromisoformat(str(last_played)[:10]).replace(tzinfo=_tz.utc)
+    except ValueError:
+        return
+    if last_dt >= earliest.replace(hour=0, minute=0, second=0, microsecond=0):
+        raise LeakageError(
+            f"current-season play-by-play runs to {last_played}, at or after the "
+            f"earliest kickoff being projected ({earliest.date()}). The projection "
+            f"would be built from the game it is predicting."
+        )
 
 
 def _apply_wind(tv, wx):
@@ -445,6 +484,11 @@ def run(
         # FULL_WEIGHT_GAMES never engaged. Team volume was 100% prior-season shrunk to
         # the league mean -- which, given PLAYS_SHRINKAGE = 0.14, meant plays per game
         # was effectively the league constant for every team, forever.
+        # The most damaging leak available here: building a "prediction" for a game
+        # from play-by-play that already contains it. This module existed, was tested,
+        # and was called by nothing -- a guard that never runs is not a guard.
+        if current_pbp_path:
+            _assert_pbp_predates_slate(current_pbp_path, markets, venue_of)
         team_vol = volume_dict(build_team_volume(pbp_path, current_pbp_path))
         blend_teams = sum(1 for v in team_vol.values() if not v.prior_only)
         usage_tbl = build_player_game_usage(pbp_path)
@@ -558,7 +602,7 @@ def run(
             # prop had its "carries trend" computed from targets.
             volume_metric = {
                 "receiving_yards": "targets", "receptions": "targets",
-                "anytime_td": "red-zone touches",
+                "anytime_td": "scoring-zone touches",
                 "rushing_yards": "carries",
                 "passing_yards": "pass attempts", "passing_tds": "pass attempts",
             }[model]
@@ -602,6 +646,17 @@ def run(
             # favourite or a ten-point dog -- while the comment below claimed
             # otherwise.
             team_spread = spread_of.get((game_date, team_code)) if game_date else None
+            # The price we are modelling against must predate kickoff. In live mode
+            # the close-time filter makes this near-impossible; in settled mode it is
+            # the whole integrity question, because a snapshot taken after kickoff
+            # would be pricing a game whose result is already known.
+            venue = venue_of.get(f"{game_date}|{team_code}") if game_date else None
+            if venue and venue[2] is not None:
+                try:
+                    assert_features_predate_kickoff(price_as_of, venue[2])
+                except LeakageError:
+                    skip("leakage_price_after_kickoff"); continue
+
             wx = wind_for(f"{game_date}|{team_code}") if game_date else None
             wind_note = describe_wind(wx) if wx else ""
             # Applied to volume via the pass rate and to efficiency via the simulator.
@@ -707,23 +762,33 @@ def run(
                 out = project_rushing_yards(vp, pi.yards_per_carry, [strike],
                                             iterations=iterations, seed=seed)
             elif model == "anytime_td":
-                # A different problem from a total: driven by red-zone opportunity,
-                # not volume between the 20s.
+                # A different problem from a total: driven by WHERE the touches come,
+                # not how many. A goal-line carry scores 3.3x more often than a
+                # red-zone target outside the five, and a quarter of all touchdowns
+                # are scored outside the 20 entirely.
                 ti = load_td_inputs(pbp_path, players_path, xr["gsis_id"], td_baselines)
                 mult = 1.0
                 for adj_i in adj:
                     mult *= adj_i.multiplier
                 td = project_anytime_td(ti, mult, iterations=iterations, seed=seed)
+                zone_label = {"gl": "inside the 5", "rz": "6 to 20 yards out",
+                              "open": "outside the 20"}
                 out = {
                     "mean": td["p_td"], "stdev": 0.0,
                     "percentiles": {}, "p_over_by_strike": {str(strike): td["p_td"]},
+                    # One row per scoring zone, so the panel shows WHERE the
+                    # probability comes from rather than a single pooled rate.
                     "explain": [
-                        {"step": "red-zone touches / game",
-                         "value": round(ti.rz_touches_per_game, 2)},
-                        {"step": "TD per red-zone touch", "multiplier": 1.0,
-                         "value": round(ti.td_per_rz_touch, 3),
-                         "detail": ("player's own rate" if ti.used_own_rate
-                                    else f"{ti.position} baseline — too few touches for a personal rate")},
+                        {"step": f"touches {zone_label[z]} / game",
+                         "value": round(d["touches"], 2),
+                         "multiplier": 1.0,
+                         "detail": (
+                             f"scores {d['rate']:.1%} of the time from there"
+                             + ("" if d["own"]
+                                else f" ({ti.position or 'positional'} baseline —"
+                                     " too few of his own touches there)")
+                         )}
+                        for z, d in td.get("by_zone", {}).items() if d["touches"] > 0
                     ],
                 }
             elif model == "passing_yards":
