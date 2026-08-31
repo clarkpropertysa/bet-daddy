@@ -276,6 +276,97 @@ model SignalResult {
   gradedTs      DateTime?
 }
 
+/// Per-player, per-game statistics. The ONLY player history the web app can see:
+/// raw Parquet is gitignored and the deployed Next app has no DuckDB, so anything the
+/// player page shows has to be synced here first.
+/// Kept narrow on purpose — roughly 8.5k rows a season against Neon's ~0.5GB.
+model PlayerGameStat {
+  id             String   @id
+  playerId       String
+  gameId         String
+  season         Int
+  week           Int
+  team           String
+  opponent       String?
+  /// Snap counts join pfr_player_id -> gsis_id through players.parquet (99.7%
+  /// coverage; weekly rosters manage 65.9%), so these can be null for a player the
+  /// join missed. Null means unknown, never zero.
+  offenseSnaps   Int?
+  offensePct     Float?
+  targets        Int?
+  receptions     Int?
+  receivingYards Float?
+  receivingTds   Int?
+  airYards       Float?
+  carries        Int?
+  rushingYards   Float?
+  rushingTds     Int?
+  passingYards   Float?
+  passingTds     Int?
+  interceptions  Int?
+  /// Shares are the actual insight — a yardage line moves with role, not with talent.
+  targetShare    Float?
+  airYardsShare  Float?
+  carryShare     Float?
+  wopr           Float?
+  source         String
+  ingestedAt     DateTime @default(now())
+  @@unique([playerId, gameId])
+  @@index([playerId, season, week])
+}
+
+/// With/without-teammate splits from features/splits.py.
+/// Every row is stored INCLUDING the ones that fail their gates, with the flags intact.
+/// The UI filters; it does not re-decide. That mirrors player_volume.py, which consumes
+/// `significant`/`suppressed` rather than recomputing them, and it lets the page say
+/// "no trustworthy split" instead of rendering a blank.
+model PlayerSplit {
+  id                  String   @id
+  playerId            String
+  teammateId          String
+  team                String
+  metric              String
+  season              Int
+  nWith               Int
+  nWithout            Int
+  meanWith            Float
+  meanWithout         Float
+  delta               Float
+  ciLow               Float
+  ciHigh              Float
+  significant         Boolean
+  suppressed          Boolean
+  confoundRegularsOut Boolean  @default(false)
+  source              String
+  ingestedAt          DateTime @default(now())
+  @@unique([playerId, teammateId, metric, season])
+  @@index([playerId, significant])
+}
+
+/// Kalshi's game-market price against the sportsbook consensus nflverse already ships.
+/// REFERENCE ONLY — never an edge, never a Signal. This exists to answer DECISIONS.md
+/// D8's own revisit trigger ("revisit if the archive shows Kalshi pricing diverging from
+/// consensus"), which was previously unmeasurable.
+/// A time series, not a snapshot: the question is whether divergence PERSISTS.
+model GameMarketCompare {
+  id              String   @id
+  gameId          String
+  ts              DateTime
+  /// Null when Kalshi lists the game but nobody is quoting it — the normal state well
+  /// before kickoff. Stored rather than skipped so "unquoted" is distinguishable from
+  /// "job did not run".
+  kalshiProbHome  Float?
+  vegasProbHome   Float?
+  diffPts         Float?
+  kalshiOverround Float?
+  vegasOverround  Float?
+  kalshiQuoted    Boolean  @default(false)
+  source          String
+  ingestedAt      DateTime @default(now())
+  @@unique([gameId, ts])
+  @@index([gameId, ts])
+}
+
 // ---------------------------------------------------------------- ops
 /// Section 12: stale pipeline runs must surface in the UI, never serve silently.
 model PipelineRun {

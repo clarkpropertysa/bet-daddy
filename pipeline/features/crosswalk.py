@@ -27,9 +27,17 @@ from enum import Enum
 import duckdb
 import pyarrow as pa
 
-# Kalshi team code -> nflverse team code. nflverse uses LA (not LAR), JAC (not JAX).
+# Kalshi team code -> nflverse team code. nflverse uses LA (not LAR) and WAS (not WSH).
+#
+# The JAC entry used to read "JAX": "JAC", exactly reversed. Comparing all 32 codes
+# from live Kalshi game markets against schedules.parquet settles it: KALSHI writes JAC
+# and LAR, NFLVERSE writes JAX and LA. Reversed, Kalshi's JAC passed through untouched
+# and never matched nflverse's JAX, so every Jacksonville player resolved UNRESOLVED --
+# and the projection job skips unresolved players silently. An entire franchise would
+# have been missing from the board with nothing raised, the same failure mode as the
+# Rams `.replace()` bug.
 TEAM_ALIASES = {
-    "LAR": "LA", "JAX": "JAC", "WSH": "WAS", "ARZ": "ARI",
+    "LAR": "LA", "JAC": "JAX", "WSH": "WAS", "ARZ": "ARI",
     "CLV": "CLE", "HST": "HOU", "OAK": "LV", "SD": "LAC", "SL": "LA",
 }
 

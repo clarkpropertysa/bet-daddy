@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import duckdb
 import pyarrow.parquet as pq
 
-from pipeline.common import config, db
+from pipeline.common import config, db, tickers
 from pipeline.features.crosswalk import build_crosswalk
 from pipeline.features.starters import STARTER_DEPTH, resolve_starters
 from pipeline.model.features_for_projection import (
@@ -179,48 +179,13 @@ def open_market_census(archive_glob: str, max_price_age_mins: int) -> dict:
     }
 
 
-# Preseason snap distribution bears no relation to the regular season -- starters
-# play a series or two. Projecting it produces confident nonsense, so it is refused
-# outright rather than left to a caller to remember.
-PRESEASON_MONTHS = ("AUG", "JUL")
-
-
-# Kalshi's own team codes, used to split an event ticker. A midpoint split is wrong
-# whenever the two codes are different lengths: ARILV becomes AR/ILV rather than
-# ARI/LV. Same failure as splitting SFBPURDY13 into SFB+PURDY.
-_TEAM_CODES = {
-    "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB","HOU",
-    "IND","JAX","KC","LAC","LAR","LV","MIA","MIN","NE","NO","NYG","NYJ","PHI","PIT",
-    "SEA","SF","TB","TEN","WAS","JAC","LA","WSH",
-}
-
-
-def _split_matchup(teams: str) -> tuple[str, str] | None:
-    """Split a concatenated matchup by anchoring on real team codes, longest first."""
-    for away in sorted(_TEAM_CODES, key=len, reverse=True):
-        if teams.startswith(away):
-            home = teams[len(away):]
-            if home in _TEAM_CODES:
-                return away, home
-    return None
-
-
-_MONTHS = {m: i + 1 for i, m in enumerate(
-    ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"])}
-
-
-def _event_date(market_ticker: str) -> str | None:
-    """26SEP10SFLAR -> "2026-09-10", the key rest context is stored under."""
-    parts = market_ticker.split("-")
-    if len(parts) < 2:
-        return None
-    m = re.match(r"^(\d{2})([A-Z]{3})(\d{2})[A-Z]{4,8}$", parts[1])
-    if not m:
-        return None
-    yy, mon, dd = m.groups()
-    if mon not in _MONTHS:
-        return None
-    return f"20{yy}-{_MONTHS[mon]:02d}-{int(dd):02d}"
+# Event-ticker parsing lives in pipeline/common/tickers.py. It used to be four separate
+# regexes and two team-code tables in THIS file, and every one of the three anchoring
+# bugs found in this project came from one copy being fixed while the others were not.
+_split_matchup = tickers.split_matchup
+_event_date = tickers.event_date
+_TEAM_CODES = tickers.TEAM_CODES
+PRESEASON_MONTHS = tickers.PRESEASON_MONTHS
 
 
 def _rest_context(schedule_path: str, season: int) -> dict:
@@ -240,65 +205,9 @@ def _rest_context(schedule_path: str, season: int) -> dict:
     return out
 
 
-def _opponent_of(market_ticker: str, team_code: str) -> str | None:
-    """The other team in the event ticker.
-
-    Must be ANCHORED, not subtracted. The previous version did
-    `matchup.replace(team_code, "")`, which breaks whenever one code contains
-    another: the crosswalk normalises LAR -> LA, so every Rams player produced
-    "SFLAR".replace("LA") = "SFR" -- a team that does not exist. defense_detail then
-    found nothing and the opponent adjustment silently did nothing for an entire
-    franchise, all season.
-    """
-    parts = market_ticker.split("-")
-    if len(parts) < 2 or not team_code:
-        return None
-    m = re.match(r"^\d{2}[A-Z]{3}\d{2}([A-Z]{4,8})$", parts[1])
-    if not m:
-        return None
-    split = _split_matchup(m.group(1))
-    if not split:
-        return None
-    away, home = split
-    # the ticker uses Kalshi codes; the crosswalk hands us nflverse codes
-    norm = {"LAR": "LA", "JAX": "JAC", "WSH": "WAS"}
-    a, h = norm.get(away, away), norm.get(home, home)
-    # Return the NFLVERSE code: the opponent feeds defense_detail, whose grades are
-    # keyed on pbp defteam. Returning Kalshi's "LAR" would silently miss every Rams
-    # defensive grade -- the same failure this function was written to fix.
-    if team_code == a:
-        return h
-    if team_code == h:
-        return a
-    return None
-
-
-def _game_label(market_ticker: str) -> str | None:
-    """26AUG15CARBUF -> "CAR at BUF, Aug 15".
-
-    A strike is meaningless without the game it belongs to: 50 passing yards is
-    absurd in September and routine in a preseason game where a starter plays one
-    series.
-    """
-    parts = market_ticker.split("-")
-    if len(parts) < 2:
-        return None
-    m = re.match(r"^\d{2}([A-Z]{3})(\d{2})([A-Z]{4,8})$", parts[1])
-    if not m:
-        return None
-    mon, day, teams = m.groups()
-    split = _split_matchup(teams)
-    if not split:
-        return None
-    away, home = split
-    return f"{away} at {home}, {mon.title()} {int(day)}"
-
-
-def _is_preseason(market_ticker: str) -> bool:
-    parts = market_ticker.split("-")
-    if len(parts) < 2:
-        return False
-    return any(mo in parts[1][:7].upper() for mo in PRESEASON_MONTHS)
+_opponent_of = tickers.opponent_of
+_game_label = tickers.game_label
+_is_preseason = tickers.is_preseason
 
 
 def run(

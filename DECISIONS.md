@@ -1394,3 +1394,107 @@ corrected in one and not the other would show a number that no grade will ever m
 
 The empty-board census now prefers the live book too: the run's census was true when
 the run happened, and an empty board should explain the market as it is, not as it was.
+
+---
+
+## Kalshi writes JAC, nflverse writes JAX, and the alias was backwards
+
+**2026-08-31.** Found while building the consensus job: two of 32 game markets would not
+join to the schedule, both Jacksonville.
+
+`crosswalk.py` carried `TEAM_ALIASES = {"JAX": "JAC", ...}` with the comment *"nflverse
+uses LA (not LAR), JAC (not JAX)"*. The comment was wrong and the mapping was exactly
+reversed. Comparing all 32 team codes from live Kalshi game markets against
+`schedules.parquet` settles it in one line:
+
+    Kalshi codes not in nflverse: ['JAC', 'LAR']
+    nflverse codes not in Kalshi: ['JAX', 'LA']
+
+**Kalshi writes JAC and LAR. nflverse writes JAX and LA.** Nothing else differs.
+
+Written the wrong way round, Kalshi's `JAC` was never translated — it passed through
+untouched and never matched nflverse's `JAX`. Confirmed against three real Jacksonville
+players: every one resolved `UNRESOLVED` before the fix and `EXACT` after. The projection
+job skips unresolved players *silently*, so **the entire Jaguars roster would have been
+missing from the board with nothing raised** — the same failure mode as the Rams
+`.replace()` bug, in a different file, found the same way.
+
+It survived because nothing had ever exercised it: no Jacksonville prop market has been
+quoted or archived yet, and the 93.8% crosswalk match rate was measured on a sample that
+happened to contain none.
+
+The regression test guards the *direction* generically rather than the single case:
+every value in the alias table must be a code nflverse actually uses, and every key must
+be one it does not. An alias pointing at a code that exists nowhere resolves to nothing,
+silently, which is precisely how this survived.
+
+---
+
+## Event-ticker parsing, in one place
+
+Extracted `pipeline/common/tickers.py`. The same event-ticker regex had been written
+**four times in `project.py` alone**, alongside two copies of the team-code table and a
+fifth reimplementation in TypeScript. All three anchoring bugs this project has found
+came from one copy being fixed while the others stayed wrong:
+
+- `ARILV` split at the midpoint → `AR`/`ILV`
+- `"SFLAR".replace("LA","")` → `SFR`, disabling the Rams matchup adjustment all season
+- `SFBPURDY13` split greedily → `SFB` + `PURDY`
+
+`parse_event()` returns both spellings — normalised nflverse codes for joining, raw
+Kalshi codes for round-tripping — because collapsing them is what produced the JAC bug.
+
+---
+
+## Measuring D8's own trigger, for nothing
+
+D8 deferred paid odds data with a revisit trigger: *"Revisit if the archive shows Kalshi
+pricing diverging from consensus."* That was unmeasurable, because measuring it looked
+like it required the data it was gating. It does not.
+
+Kalshi lists NFL **game** markets, and nflverse already ships closing Vegas moneylines
+free — the Slate renders its spreads and totals today. Game markets carry no player, so
+none of the cross-source name resolution that made the paid path expensive applies.
+
+Priced at ~$99/month now, incidentally: the 500-credit free tier §4.4 was written around
+no longer covers NFL player props. ESPN's undocumented API was checked directly — game
+odds return a single provider and `/props` 404s.
+
+**Reference only, and that is load-bearing, not deference.** `signal.py` assumes a $1
+binary: the unquoted side is `1 - yes_price`, Kelly uses `b = (1-price)/price`, and
+`fees.py` rejects any price outside [0,1] dollars. American odds satisfy none of that.
+Keeping this out of the edge path is why none of that machinery had to change.
+
+**Both venues get de-vigged.** Kalshi's two team markets are separate binaries whose asks
+also sum above 1, by its own spread. De-vigging the book and comparing it to a raw
+exchange ask would report Kalshi's spread as divergence — manufacturing the finding the
+comparison exists to detect. There is a test for exactly that.
+
+**Mean absolute divergence is reported alongside the signed mean.** The signed mean is
+near zero whenever Kalshi is noisy but unbiased, which reads as agreement and is the
+opposite of what noise means to someone taking those prices.
+
+Unquoted games are written as rows with `kalshiQuoted = false` rather than skipped, so
+"listed but nobody is pricing it" stays distinguishable from "the job did not run". Today
+that is all 32 of them.
+
+---
+
+## Player statistics have to be materialised to be shown
+
+Postgres holds engineered outputs only — Neon's free tier is ~0.5GB and 25 seasons of pbp
+will not fit. Correct, and it meant the deployed app had access to **no player statistic
+at all**: `data/raw/**` is gitignored and `web/package.json` has no DuckDB.
+
+`PlayerGameStat` and `PlayerSplit` materialise what `usage.py` and `splits.py` already
+compute and until now handed only to the projection job in memory. 5,225 game rows and
+6,247 splits for 2025, of which **84 clear both gates** — the same 84 the volume model
+uses.
+
+Splits are stored *including* the ones that fail, flags intact. The UI filters; it does
+not re-decide. Same contract `player_volume.py` honours, and it lets the page say "no
+trustworthy split" rather than rendering a blank.
+
+`executemany`, not a loop of `execute`: row-by-row over a network connection took minutes
+for 11k rows and would have timed out in CI. Reconciled against the source — Ja'Marr
+Chase, 2025 week 2: 16 targets, 14 receptions, 165 yards, 1 TD.
