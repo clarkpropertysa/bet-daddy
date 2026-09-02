@@ -29,6 +29,7 @@ def _write(tmp_path: Path, rows: list[dict]) -> str:
         ("market_type", pa.string()),
         ("ts", pa.timestamp("us", tz="UTC")),
         ("yes_ask", pa.float64()),
+        ("no_ask", pa.float64()),
         ("strike", pa.float64()),
         ("close_time", pa.timestamp("us", tz="UTC")),
         ("mins_to_close", pa.int64()),
@@ -39,12 +40,16 @@ def _write(tmp_path: Path, rows: list[dict]) -> str:
     return str(p)
 
 
-def _row(ticker, *, ask, result, close_in_mins, age_mins, mins_to_close=None):
+def _row(ticker, *, ask, result, close_in_mins, age_mins, mins_to_close=None,
+         no_ask=None):
     close = NOW + dt.timedelta(minutes=close_in_mins)
     ts = NOW - dt.timedelta(minutes=age_mins)
     return {
         "market_ticker": ticker, "series_ticker": "KXNFLPASSYDS",
-        "market_type": "pass_yds", "ts": ts, "yes_ask": ask, "strike": 250.0,
+        "market_type": "pass_yds", "ts": ts, "yes_ask": ask,
+        # The REAL no-side ask. Inferring 1 - yes_ask is fiction on a one-sided book.
+        "no_ask": no_ask if no_ask is not None else (None if ask is None else 1.0 - ask),
+        "strike": 250.0,
         "close_time": close, "mins_to_close": mins_to_close if mins_to_close
         is not None else int((close - ts).total_seconds() // 60),
         "result": result,
@@ -143,3 +148,50 @@ def test_extreme_asks_are_excluded_from_live_too(tmp_path):
         _row("ONE", ask=1.0, result=None, close_in_mins=600, age_mins=5),
     ])
     assert _open_prices(glob, 180) == []
+
+
+def test_the_real_no_side_ask_is_carried_not_inferred(tmp_path):
+    """compute_edge falls back to `1 - yes_ask` for the no side, which is fiction on a
+    one-sided book.
+
+    Rhamondre Stevenson 8+ receptions quoted yes_ask 0.97 with no_ask 1.0000. The
+    inferred no price of 0.03 implied a 97-cent edge on a contract that could not be
+    bought at any price -- it would have been the top row of the board.
+    """
+    glob = _write(tmp_path, [
+        _row("ONE-SIDED", ask=0.97, no_ask=1.0, result=None,
+             close_in_mins=600, age_mins=5),
+    ])
+    got = _open_prices(glob, 180)
+    assert len(got) == 1
+    assert got[0]["no_ask"] == pytest.approx(1.0), (
+        "the real no-side ask must survive to the edge calculation; inferring it "
+        "manufactures an edge on an unexecutable trade"
+    )
+
+
+def test_an_archive_without_the_column_still_loads(tmp_path):
+    """Snapshots taken before no_ask existed must not break the selector."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    old = pa.Table.from_pylist(
+        [{"market_ticker": "OLD-1", "series_ticker": "S", "market_type": "pass_yds",
+          "ts": NOW - dt.timedelta(minutes=5), "yes_ask": 0.42, "strike": 250.0,
+          "close_time": NOW + dt.timedelta(minutes=600), "mins_to_close": 600,
+          "result": None}],
+        schema=pa.schema([
+            ("market_ticker", pa.string()), ("series_ticker", pa.string()),
+            ("market_type", pa.string()), ("ts", pa.timestamp("us", tz="UTC")),
+            ("yes_ask", pa.float64()), ("strike", pa.float64()),
+            ("close_time", pa.timestamp("us", tz="UTC")),
+            ("mins_to_close", pa.int64()), ("result", pa.string()),
+        ]),
+    )
+    d = tmp_path / "mixed"
+    d.mkdir()
+    pq.write_table(old, d / "old.parquet")
+    _write(d, [_row("NEW-1", ask=0.5, result=None, close_in_mins=600, age_mins=5)])
+    got = _open_prices(str(d / "*.parquet"), 180)
+    assert len(got) == 2
+    assert any(r["no_ask"] is None for r in got)

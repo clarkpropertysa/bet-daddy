@@ -1957,3 +1957,51 @@ them edgeless has to change too.
 
 The player props are a separate model against a far thinner market and do not inherit
 this result. This is specifically the team-rating margin model.
+
+---
+
+## Kalshi renamed every price field, and the board silently went blank
+
+**2026-09-02.** Reported as "player props are available on Kalshi and it's not showing
+on the site." Correct, and the cause was ours.
+
+Kalshi restructured the market response: prices gained a `_dollars` suffix and
+quantities an `_fp` suffix. `yes_ask` became `yes_ask_dollars`, `volume` became
+`volume_fp`. **The old keys are absent, not null**, so `m.get("yes_ask")` returned None
+for every market on the exchange. Nulls filled the archive, `_open_prices` filtered them
+all out, and the UI reported "396 markets listed, none quoted yet" — which was a
+sentence the code had been carefully written to produce, and completely false.
+
+What made it survive: an unquoted market and a misread field produce *identical* output.
+The census counters, the freshness guard, the empty-state copy — every honesty mechanism
+built into this project reported the same thing for both. The control that caught it was
+scanning **non-NFL** series and finding zero quoted markets across the entire exchange,
+which is not a believable state of the world.
+
+Both spellings are now read, new first, via `FIELD_ALIASES` in `common/kalshi.py`, so a
+rollback or partial rollout keeps working. And the guard that was missing: a snapshot
+where **no market carries a recognised price key** records a `schema_drift` error rather
+than a column of nulls. A market with no bid is ordinary; a slate with no bid *field* is
+the exchange having moved.
+
+### Two more bugs the live prices exposed
+
+**The strike was off by one on every count market.** The real strike is `floor_strike`,
+not the ticker suffix: "Rhamondre Stevenson: 8+" has ticker `...-8` and
+`floor_strike = 7.5`, because it settles on *more than 7.5*. The simulator computes a
+strict `P(> strike)`, so every receptions and touchdown line was priced as P(≥ 9) while
+the market settles P(≥ 8) — a systematic error, always the same direction. Sam Darnold's
+"1+ passing TDs" was priced at 42% (P(≥2)) against inputs implying 78% and an actual
+2025 rate of 70.6%.
+
+**The no-side price was invented.** `compute_edge` infers the no-side as `1 - yes_ask`,
+which is fine on a two-sided book and fiction on a one-sided one. Stevenson 8+ quoted
+`yes_ask 0.97` with `no_ask 1.0000`; the inferred 0.03 implied a **97-cent edge on a
+contract that cannot be bought at any price**, and it sorted to the top of the board.
+Kalshi publishes `no_ask_dollars`; the archive now carries it and the projection passes
+it through instead of letting the maths guess.
+
+Older snapshots have no `no_ask` column, so the selectors read the glob with
+`union_by_name` and a missing value stays null rather than breaking the run.
+
+**Result: 396 markets, 396 quoted, 359 signals on the board.**

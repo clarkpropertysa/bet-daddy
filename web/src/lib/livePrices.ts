@@ -53,12 +53,41 @@ const EMPTY = (error: string | null): LiveQuoteBook => ({
 });
 
 /**
+ * Kalshi renamed every price field, appending `_dollars`: `yes_ask` is now
+ * `yes_ask_dollars` and the old key is ABSENT. Reading the old name returns undefined
+ * for every market, so the board filtered them all out and reported "listed but nobody
+ * is quoting them yet" while the exchange was quoting all 396 of them.
+ *
+ * Both spellings are read, new first, so a rollback or partial rollout keeps working.
+ */
+const PRICE_KEYS: Record<string, string[]> = {
+  yes_ask: ["yes_ask_dollars", "yes_ask"],
+  yes_bid: ["yes_bid_dollars", "yes_bid"],
+};
+
+function priceField(m: Record<string, unknown>, name: string): unknown {
+  for (const key of PRICE_KEYS[name] ?? [name]) {
+    if (key in m) return m[key];
+  }
+  return undefined;
+}
+
+/** Does this object carry a price KEY at all? Distinguishes "quoted at nothing" from
+ *  "we are reading the wrong key" -- the second is schema drift and must be loud. */
+function hasPriceField(m: Record<string, unknown>): boolean {
+  return Object.values(PRICE_KEYS).some((keys) => keys.some((k) => k in m));
+}
+
+/**
  * A 0c or 100c ask is an empty or one-sided book reported as a number, not a price
  * anyone could be filled at. Same bounds the projection enforces.
+ *
+ * Values arrive as decimal-dollar STRINGS ("0.0700"), so they are coerced.
  */
 function tradeable(v: unknown): number | null {
-  if (typeof v !== "number") return null;
-  const dollars = v > 1 ? v / 100 : v; // the API quotes cents on some endpoints
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return null;
+  const dollars = n > 1 ? n / 100 : n; // the API quotes cents on some endpoints
   return dollars > 0.01 && dollars < 0.99 ? dollars : null;
 }
 
@@ -117,6 +146,9 @@ async function fetchLiveQuotes(): Promise<LiveQuoteBook> {
   const quotes = new Map<string, LiveQuote>();
   let seen = 0;
   let quoted = 0;
+  // Whether ANY market carried a recognised price key. Zero across a full slate means
+  // the schema moved, which is indistinguishable from an unquoted market otherwise.
+  let sawPriceField = false;
 
   const results = await Promise.allSettled(NFL_PROP_SERIES.map(fetchSeries));
   const failures = results.filter((r) => r.status === "rejected");
@@ -132,8 +164,9 @@ async function fetchLiveQuotes(): Promise<LiveQuoteBook> {
       const ticker = m.ticker;
       if (typeof ticker !== "string") continue;
       seen++;
-      const yesAsk = tradeable(m.yes_ask);
-      const yesBid = tradeable(m.yes_bid);
+      if (hasPriceField(m)) sawPriceField = true;
+      const yesAsk = tradeable(priceField(m, "yes_ask"));
+      const yesBid = tradeable(priceField(m, "yes_bid"));
       if (yesAsk === null && yesBid === null) continue;
       quoted++;
       quotes.set(ticker, { yesBid, yesAsk, fetchedAt });
@@ -145,6 +178,10 @@ async function fetchLiveQuotes(): Promise<LiveQuoteBook> {
     fetchedAt,
     seen,
     quoted,
-    error: failures.length ? `${failures.length} of ${results.length} series failed` : null,
+    error: failures.length
+      ? `${failures.length} of ${results.length} series failed`
+      : seen > 0 && !sawPriceField
+        ? "no market carried a recognised price field — Kalshi has likely renamed them again"
+        : null,
   };
 }

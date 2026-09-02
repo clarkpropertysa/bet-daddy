@@ -33,6 +33,48 @@ def _to_dec(v: Any) -> Decimal | None:
         return None
 
 
+#: Kalshi renamed every price and size field, appending `_dollars` to prices and `_fp`
+#: to quantities: `yes_ask` became `yes_ask_dollars`, `volume` became `volume_fp`, and
+#: so on. The old keys are simply ABSENT from the response, so `m.get("yes_ask")`
+#: returns None and every market reads as unquoted -- the archive fills with nulls, the
+#: board filters them all out, and the UI says "listed but nobody is quoting them yet".
+#: Silent, and wrong for as long as nobody checks the exchange by hand.
+#:
+#: Both spellings are accepted so a rollback, a partial rollout, or a replayed old
+#: response keeps working. New name first: it is the one being served.
+FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "yes_bid": ("yes_bid_dollars", "yes_bid"),
+    "yes_ask": ("yes_ask_dollars", "yes_ask"),
+    "no_bid": ("no_bid_dollars", "no_bid"),
+    "no_ask": ("no_ask_dollars", "no_ask"),
+    "last_price": ("last_price_dollars", "last_price"),
+    "volume": ("volume_fp", "volume"),
+    "volume_24h": ("volume_24h_fp", "volume_24h"),
+    "open_interest": ("open_interest_fp", "open_interest"),
+}
+
+
+def field(market: dict, name: str):
+    """Read a market field under either the current or the legacy key."""
+    for key in FIELD_ALIASES.get(name, (name,)):
+        if key in market:
+            return market[key]
+    return None
+
+
+def has_price_fields(market: dict) -> bool:
+    """Does this object carry a price key at all, under EITHER spelling?
+
+    Distinguishes "quoted at nothing" from "we are reading the wrong key". A market
+    with no bid is normal; a market with no bid FIELD means the schema moved.
+    """
+    return any(
+        k in market
+        for name in ("yes_bid", "yes_ask")
+        for k in FIELD_ALIASES[name]
+    )
+
+
 class KalshiClient:
     def __init__(self, base: str | None = None, timeout: int = 30):
         self.base = (base or config.KALSHI_API_BASE).rstrip("/")

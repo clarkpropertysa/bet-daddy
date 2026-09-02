@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 
 from pipeline.common import blob, config, db
 from pipeline.common.cadence import is_due
-from pipeline.common.kalshi import KalshiClient, _to_dec
+from pipeline.common.kalshi import KalshiClient, field, has_price_fields, _to_dec
 from pipeline.ingest.kalshi_discovery import NBA_PLAYER_PROPS, NFL_PLAYER_PROPS
 
 # Decimal, not float: the whole edge is ~1.75c wide and float rounding is not
@@ -40,6 +40,7 @@ SCHEMA = pa.schema([
     ("ts", _TS),
     ("yes_bid", _PRICE),
     ("yes_ask", _PRICE),
+    ("no_ask", _PRICE),
     ("last_price", _PRICE),
     ("volume", _QTY),
     ("open_interest", _QTY),
@@ -62,9 +63,26 @@ def _parse_ts(v):
         return None
 
 
-def _strike(ticker: str) -> float | None:
-    """Strike is the final dash-delimited segment: ...-SFBPURDY13-350 -> 350."""
-    tail = ticker.rsplit("-", 1)[-1]
+def _strike(market: dict) -> float | None:
+    """The real strike, from `floor_strike` -- NOT the ticker suffix.
+
+    They differ by exactly the amount that matters. A receptions market titled
+    "Rhamondre Stevenson: 8+" has ticker `...-8` and `floor_strike = 7.5`, because it
+    settles on MORE THAN 7.5. Parsing the suffix gave 8 and the simulator computes a
+    strict P(> strike), so every count market was priced as P(>= 9) while the market
+    settles P(>= 8) -- a systematic off-by-one on every receptions and touchdown line,
+    always in the same direction.
+
+    Falls back to the suffix only when floor_strike is absent, so an older archived
+    response still parses.
+    """
+    fs = market.get("floor_strike")
+    if fs is not None:
+        try:
+            return float(fs)
+        except (TypeError, ValueError):
+            pass
+    tail = (market.get("ticker") or "").rsplit("-", 1)[-1]
     try:
         return float(tail)
     except ValueError:
@@ -106,6 +124,9 @@ def snapshot(
         series_map |= {k: ("nba", v) for k, v in NBA_PLAYER_PROPS.items()}
 
     rows, errors, ob_calls, skipped = [], [], 0, 0
+    # Markets whose response carried a price KEY at all, under either
+    # spelling. Zero of these across a full slate means the schema moved.
+    priced_fields = 0
 
     for series_ticker, (sport, market_type) in series_map.items():
         try:
@@ -126,7 +147,17 @@ def snapshot(
                     skipped += 1
                     continue
 
-            yb, ya = _to_dec(m.get("yes_bid")), _to_dec(m.get("yes_ask"))
+            # Read through the alias table: Kalshi renamed these to *_dollars and the
+            # old keys are absent, so a direct m.get() silently returns None for every
+            # market and the whole archive fills with nulls.
+            yb, ya = _to_dec(field(m, "yes_bid")), _to_dec(field(m, "yes_ask"))
+            # The real NO-side ask. compute_edge otherwise infers it as 1 - yes_ask,
+            # which is fiction on a one-sided book: Stevenson 8+ shows yes_ask 0.98
+            # with no_ask 1.00, so the inferred 0.02 implied a 97c edge on a trade
+            # that cannot be executed at any price.
+            na = _to_dec(field(m, "no_ask"))
+            if has_price_fields(m):
+                priced_fields += 1
 
             ob_json = None
             # Only spend an API call where a quote actually exists. The listing's
@@ -149,10 +180,11 @@ def snapshot(
                 "ts": now,
                 "yes_bid": yb,
                 "yes_ask": ya,
-                "last_price": _to_dec(m.get("last_price")),
-                "volume": _to_dec(m.get("volume")),
-                "open_interest": _to_dec(m.get("open_interest")),
-                "strike": _strike(ticker or ""),
+                "no_ask": na,
+                "last_price": _to_dec(field(m, "last_price")),
+                "volume": _to_dec(field(m, "volume")),
+                "open_interest": _to_dec(field(m, "open_interest")),
+                "strike": _strike(m),
                 "status": m.get("status"),
                 "close_time": close,
                 "mins_to_close": mtc,
@@ -184,12 +216,26 @@ def snapshot(
     quoted = sum(
         1 for r in rows if r["yes_bid"] is not None or r["yes_ask"] is not None
     )
+    # SCHEMA DRIFT GUARD. "Nobody is quoting" and "we are reading the wrong key" look
+    # identical from the outside -- both produce a column of nulls -- and the second one
+    # cost a launch. A market with no bid is ordinary; a slate of markets with no bid
+    # FIELD is the exchange having renamed something.
+    if rows and priced_fields == 0:
+        errors.append({
+            "stage": "schema_drift",
+            "error": (
+                f"none of {len(rows)} markets carried a recognised price field. "
+                f"Kalshi has likely renamed them again -- check the raw response and "
+                f"extend FIELD_ALIASES in pipeline/common/kalshi.py."
+            ),
+        })
     return {
         "rows": df.num_rows,
         "quoted": quoted,
         "orderbooks": ob_calls,
         "skipped": skipped,
         "errors": errors,
+        "priced_fields": priced_fields,
         "path": str(path),
         "blob_url": blob_url,
     }

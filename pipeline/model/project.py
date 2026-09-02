@@ -115,13 +115,14 @@ def _settled_prices(archive_glob: str, mins_before_close: int) -> list[dict]:
                    row_number() over (
                        partition by market_ticker order by mins_to_close asc
                    ) rn
-            from read_parquet('{archive_glob}')
+            from read_parquet('{archive_glob}', union_by_name=true)
             where mins_to_close >= {int(mins_before_close)}
               and yes_ask is not null
               and yes_ask >= {MIN_TRADEABLE_ASK}
               and yes_ask <= {MAX_TRADEABLE_ASK}
         )
-        select market_ticker, series_ticker, market_type, strike, yes_ask, result,
+        select market_ticker, series_ticker, market_type, strike, yes_ask,
+               no_ask, result,
                close_time, mins_to_close, ts as price_ts
         from ranked where rn = 1 and result in ('yes', 'no')
     """).to_arrow_table().to_pylist()
@@ -141,14 +142,15 @@ def _open_prices(archive_glob: str, max_price_age_mins: int) -> list[dict]:
                    row_number() over (
                        partition by market_ticker order by ts desc
                    ) rn
-            from read_parquet('{archive_glob}')
+            from read_parquet('{archive_glob}', union_by_name=true)
             where result is null
               and close_time > now()
               and yes_ask is not null
               and yes_ask >= {MIN_TRADEABLE_ASK}
               and yes_ask <= {MAX_TRADEABLE_ASK}
         )
-        select market_ticker, series_ticker, market_type, strike, yes_ask, result,
+        select market_ticker, series_ticker, market_type, strike, yes_ask,
+               no_ask, result,
                close_time,
                cast(date_diff('minute', now(), close_time) as bigint) as mins_to_close,
                ts as price_ts
@@ -175,7 +177,7 @@ def open_market_census(archive_glob: str, max_price_age_mins: int) -> dict:
                    and yes_ask >= {MIN_TRADEABLE_ASK}
                    and yes_ask <= {MAX_TRADEABLE_ASK}
                   then market_ticker end) as quoted
-        from read_parquet('{archive_glob}')
+        from read_parquet('{archive_glob}', union_by_name=true)
         where result is null and close_time > now()
     """).fetchone()
     return {
@@ -828,7 +830,10 @@ def run(
                 n_share_based += 1
             proj_id = str(uuid.uuid4())
             baseline_vol = vp.baseline
-            edge_preview = compute_edge(p_over, m["yes_ask"])
+            # The REAL no-side ask when the archive has one. compute_edge otherwise
+            # infers 1 - yes_ask, which is fiction on a one-sided book and produced a
+            # 97c "edge" on a contract whose actual no-ask was $1.00.
+            edge_preview = compute_edge(p_over, m["yes_ask"], m.get("no_ask"))
 
             divergence = abs(p_over - float(m["yes_ask"]))
             implausible = divergence > IMPLAUSIBLE_DIVERGENCE

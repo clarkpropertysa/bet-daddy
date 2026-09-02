@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import duckdb
 
 from pipeline.common import config, db, tickers
-from pipeline.common.kalshi import KalshiClient
+from pipeline.common.kalshi import KalshiClient, field
 from pipeline.features.consensus import GameComparison, compare_game, summarise
 
 SERIES = "KXNFLGAME"
@@ -64,7 +64,7 @@ def _kalshi_game_quotes(client: KalshiClient) -> dict[str, dict]:
         parts = ticker.split("-")
         if len(parts) < 3:
             continue
-        ask = m.get("yes_ask")
+        ask = field(m, "yes_ask")   # renamed to yes_ask_dollars
         try:
             ask = float(ask) if ask is not None else None
         except (TypeError, ValueError):
