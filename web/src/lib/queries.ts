@@ -23,7 +23,10 @@ function reprice(r: BoardRow, book: LiveQuoteBook): BoardRow {
   // built from.
   if (!q || q.yesAsk === null || pOver === null) return { ...r, priceSource: "stored" };
 
-  const e = computeEdge(pOver, q.yesAsk);
+  // The real no-side ask, never the complement of the yes ask. `computeEdge` will
+  // infer one when this is null, and on a wide book that inference returns the no BID
+  // and turns the whole spread into edge.
+  const e = computeEdge(pOver, q.yesAsk, q.noAsk);
   return {
     ...r,
     side: e.side,

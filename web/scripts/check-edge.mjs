@@ -60,6 +60,33 @@ check("float-formatted strike", pOverAtStrike({ "250.0": 0.6 }, 250), 0.6);
 check("null strike", pOverAtStrike({ "250": 0.6 }, null), null);
 check("out-of-range value rejected", pOverAtStrike({ "250": 1.4 }, 250), null);
 
+console.log("the no side is priced by the exchange, never by the complement");
+// Rhamondre Stevenson, 25+ receiving yards, taken live from Kalshi:
+//   yes 0.44 / 0.79     no 0.21 / 0.56
+// The complement of the yes ask is 0.21 -- which is the no BID, the price someone
+// would pay YOU. Buying the no side costs 0.56. Repricing against the inferred value
+// valued a 56c contract at 21c and put a phantom +34c edge top of the board.
+{
+  const model = 0.438;                 // P(over 24.5) from the simulation
+  const real = computeEdge(model, 0.79, 0.56);
+  const inferred = computeEdge(model, 0.79);
+  check("real no-side price is used", real.marketProb, 0.56);
+  check("real no-side edge is ~nothing", real.edgeCentsNet < 1, true);
+  check("inferred no-side invents an edge", inferred.edgeCentsNet > 30, true);
+  check("the two disagree by the spread", inferred.marketProb, 0.21);
+}
+
+// A one-sided book is the case that motivated this in Python: yes_ask 0.97 with a
+// real no_ask of 1.0000 means the no side cannot be bought at any price, while the
+// complement implies 0.03 and a 97-cent edge.
+{
+  const onesided = computeEdge(0.05, 0.97, 1.0);
+  const inferred = computeEdge(0.05, 0.97);
+  // Both sides lose here, which is the correct reading of a book you cannot trade.
+  check("unbuyable no side yields no edge", onesided.edgeCentsNet < 0, true);
+  check("inferred no side invents 90c+", inferred.edgeCentsNet > 90, true);
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

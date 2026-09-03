@@ -30,6 +30,20 @@ const NFL_PROP_SERIES = [
 export type LiveQuote = {
   yesBid: number | null;
   yesAsk: number | null;
+  /**
+   * What it costs to BUY the no side, quoted by the exchange rather than derived.
+   *
+   * `computeEdge` falls back to `1 - yesAsk` when this is null, which is correct only
+   * on a tight two-sided book. Kalshi prop books are not tight. Rhamondre Stevenson's
+   * 25+ receiving yards market quoted yes 0.44/0.79 and no 0.21/0.56: the complement
+   * of the yes ask is 0.21, which is exactly the no BID. Repricing against it valued a
+   * 56c contract at 21c and put a phantom +34c edge at the top of the board.
+   *
+   * The Python side has read the real `no_ask` since the field-rename fix; this path
+   * did not, and the omission was invisible only because the strike-key mismatch had
+   * disabled live repricing entirely.
+   */
+  noAsk: number | null;
   fetchedAt: Date;
 };
 
@@ -63,6 +77,10 @@ const EMPTY = (error: string | null): LiveQuoteBook => ({
 const PRICE_KEYS: Record<string, string[]> = {
   yes_ask: ["yes_ask_dollars", "yes_ask"],
   yes_bid: ["yes_bid_dollars", "yes_bid"],
+  // The REAL no-side ask. Inferring it as 1 - yes_ask returns the no BID on a wide
+  // book -- what someone would pay you, not what you would pay -- and every cent of
+  // the spread then reads as edge. See LiveQuote.noAsk.
+  no_ask: ["no_ask_dollars", "no_ask"],
 };
 
 function priceField(m: Record<string, unknown>, name: string): unknown {
@@ -167,9 +185,10 @@ async function fetchLiveQuotes(): Promise<LiveQuoteBook> {
       if (hasPriceField(m)) sawPriceField = true;
       const yesAsk = tradeable(priceField(m, "yes_ask"));
       const yesBid = tradeable(priceField(m, "yes_bid"));
+      const noAsk = tradeable(priceField(m, "no_ask"));
       if (yesAsk === null && yesBid === null) continue;
       quoted++;
-      quotes.set(ticker, { yesBid, yesAsk, fetchedAt });
+      quotes.set(ticker, { yesBid, yesAsk, noAsk, fetchedAt });
     }
   }
 

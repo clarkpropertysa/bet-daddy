@@ -2185,3 +2185,37 @@ k 0.74, n=42 — more quarterbacks clear the two-a-game floor once knees count).
 pool on one definition while feeding the anchor the other is a pool the projection never
 sees, and for quarterbacks the definitions differ by roughly 0.7 carries a game, which is
 most of what the shrinkage does at that volume.
+
+## Fixing the strike lookup switched on a path that still had the phantom-edge bug
+
+The board's top row read **Stevenson under 25 receiving yards, +34c**, model 56% against
+a market 21%. It was not real, and it was a bug I introduced by fixing a different one.
+
+The stored signal for that market says model 0.562, market 0.560, net **-1.53c** — no
+edge. The +34c came from live repricing. `reprice` called `computeEdge(pOver, q.yesAsk)`
+with no no-side price, and `computeEdge` then infers `1 - yesAsk`.
+
+The real quote, taken from Kalshi:
+
+    yes   0.44 / 0.79        no   0.21 / 0.56
+
+The complement of the yes ask is 0.21, which is **exactly the no BID** — the price
+someone would pay you, not the price you pay. Buying the no side costs 0.56. Repricing
+against the inferred number valued a 56-cent contract at 21 cents and turned the book's
+35-cent spread into edge.
+
+**This is the same bug already fixed in Python**, where `compute_edge` has taken the real
+`no_ask` since the field-rename work. The TypeScript path never got it. It stayed
+invisible because `pOverAtStrike` could not match a floor strike against a ticker suffix,
+so `reprice` returned `priceSource: "stored"` on every row and the inference never ran.
+Repairing the strike key turned on a code path carrying an unfixed copy of a known bug —
+0 of 359 rows repriced before, 359 of 359 after.
+
+The lesson is narrower than "port fixes to both sides": a dead code path is not a safe
+one, and re-enabling it needs the same review as writing it. The edge formula being
+implemented twice is exactly what `check:edge` exists to guard, and it did not cover the
+no-side argument. It does now, using these measured prices and the one-sided book
+(`yes_ask 0.97`, real `no_ask 1.0000`) that motivated the Python fix.
+
+`LiveQuote` now carries `noAsk`, read through the same alias table as the other price
+fields.
