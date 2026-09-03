@@ -4,9 +4,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { StaleBanner } from "@/components/StaleBanner";
 import { Tier } from "@/components/Tier";
-import { signedCents } from "@/lib/format";
+import { priceCents, projected, signedCents, strikeLabel } from "@/lib/format";
 import { gameFromTicker, labelFor } from "@/lib/markets";
-import { getBoard, getJobHealth, getNextSlate } from "@/lib/queries";
+import { getJobHealth, getNextSlate, getProjectionBoard } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,10 @@ const MIN_EDGE_CENTS = 1.0;
 
 export default async function TopPicksPage() {
   const [rows, slate, health] = await Promise.all([
-    getBoard(200),
+    // One row per PROJECTION. A ticker is unique per strike, so ranking raw signals
+    // let a single player's twenty-rung ladder take most of the list -- twenty copies
+    // of one opinion, presented as twenty opportunities.
+    getProjectionBoard(40),
     getNextSlate(),
     getJobHealth(),
   ]);
@@ -89,7 +92,7 @@ export default async function TopPicksPage() {
     <div>
       <PageHeader
         title="Top Picks"
-        sub="Where the model and the market disagree most, ranked within each kind. Nothing is ranked across kinds — a prop edge is cents after fees and a game lean is points, and inventing a common score would hide which is which."
+        sub="What the model expects, and where that differs enough from the price to be worth acting on. One row per projection: the exchange lists twenty strikes against a single forecast, and those are twenty ways to state one opinion, not twenty opportunities. Nothing is ranked across kinds — a prop edge is cents after fees and a game lean is points, and inventing a common score would hide which is which."
         right={
           <StaleBanner
             lastRun={newestPrice ?? archiver?.startedAt ?? null}
@@ -103,7 +106,9 @@ export default async function TopPicksPage() {
       <section className="mb-6">
         <div className="mb-2 flex items-baseline justify-between gap-3">
           <h2 className="display text-[14px] text-ink">Player props</h2>
-          <span className="eyebrow">net of fees · {props.length} clearing the bar</span>
+          <span className="eyebrow">
+            one row per projection · {props.length} clearing the bar
+          </span>
         </div>
 
         {props.length === 0 ? (
@@ -122,20 +127,37 @@ export default async function TopPicksPage() {
                 <span className="display w-5 shrink-0 text-[15px] text-steel">{i + 1}</span>
                 <PlayerAvatar name={r.player} url={r.headshotUrl} size={34} />
                 <div className="min-w-0 flex-1">
+                  {/* The MODEL'S NUMBER first. The edge is what follows from it, not
+                      the other way round -- and a projection is one claim however many
+                      strikes the exchange happens to list against it. */}
                   <p className="truncate text-[13px] font-medium text-ink">
                     {r.player}{" "}
                     <span className="font-normal text-ink-2">
-                      {r.side === "no" ? "under" : "over"} {r.strike ?? "—"}{" "}
                       {labelFor(r.marketType).toLowerCase()}
                     </span>
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-ink">
+                    Model projects{" "}
+                    <strong className="font-medium">
+                      {projected(r.projMean, r.marketType)}
+                    </strong>
+                    {r.projMedian !== null ? (
+                      <span className="text-ink-3">
+                        {" "}
+                        · median {projected(r.projMedian, r.marketType)}
+                      </span>
+                    ) : null}
                   </p>
                   <p className="mt-0.5 text-[11px] text-ink-3">
                     {/* gameLabel parses the nflverse form (2026_01_NE_SEA); a board
                         row carries the Kalshi ticker, which it would print raw. */}
                     {r.team ?? "—"} ·{" "}
-                    {gameFromTicker(r.marketTicker)?.label ?? r.gameId} · model{" "}
-                    {(r.modelProb * 100).toFixed(0)}% vs market{" "}
-                    {(r.marketProb * 100).toFixed(0)}%
+                    {gameFromTicker(r.marketTicker)?.label ?? r.gameId} · best of{" "}
+                    {r.ladderRungs} {r.ladderRungs === 1 ? "line" : "lines"}:{" "}
+                    <span className="text-ink-2">
+                      {strikeLabel(r.strike, r.side)} at {priceCents(r.marketProb)}
+                    </span>{" "}
+                    · model {(r.modelProb * 100).toFixed(0)}%
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
@@ -152,10 +174,12 @@ export default async function TopPicksPage() {
           </ol>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
-          Edge is what remains after the exact taker fee. Every one of these is{" "}
+          The projection is the model&apos;s central estimate for the whole game; the
+          line beside it is whichever quoted strike that estimate disagrees with most
+          after the exact taker fee. Every one of these is{" "}
           <strong className="font-medium">unvalidated</strong> until 200 settled
           contracts show positive closing-line value — the tier badge says where each
-          one stands. <Link href="/board" className="text-steel underline-offset-2 hover:underline">Full board →</Link>
+          one stands. <Link href="/board" className="text-steel underline-offset-2 hover:underline">Every strike →</Link>
         </p>
       </section>
 

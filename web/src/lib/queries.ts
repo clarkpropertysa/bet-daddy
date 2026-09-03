@@ -67,6 +67,14 @@ export type BoardRow = {
   modelVersion: string;
   /** strike -> P(over), the stored model curve. Used to reprice against a live ask. */
   pOverByStrike?: unknown;
+  /** The model's projected number for this player and market -- what it expects to
+   *  happen, as opposed to how far it disagrees with the price. Identical across every
+   *  strike of one projection, which is what lets the ladder collapse to a single row. */
+  projMean: number | null;
+  projStdev: number | null;
+  /** Median from the stored percentile curve. Reported alongside the mean because a
+   *  yardage distribution is right-skewed and the two differ by enough to matter. */
+  projMedian: number | null;
   /** "live" when the ask came from the market just now, "stored" when it did not. */
   priceSource: "live" | "stored";
 };
@@ -110,9 +118,11 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       t.abbrev            as team,
       pr."marketType"     as "marketType",
       pr."gameId"         as "gameId",
-      -- MarketSnapshot is not mirrored into Postgres (the archive is Parquet), so
-      -- the strike is parsed off the ticker: ...-SFBPURDY13-350 -> 350
-      nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
+      -- Kalshi's floor_strike, stored by the pipeline. NOT the ticker suffix: they
+      -- differ by 0.5 on every count market ("8+ receptions" is ticker -8 and settles
+      -- on more than 7.5), which both displayed the wrong line and broke repricing,
+      -- since pOverByStrike is keyed on the floor strike and "8" never matched "7.5".
+      l.strike::float8    as strike,
       l.side              as side,
       l."modelProb"::float8   as "modelProb",
       l."marketProb"::float8  as "marketProb",
@@ -125,6 +135,9 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       l."closeTime"       as "closeTime",
       l."priceAsOf"       as "priceAsOf",
       pr."pOverByStrike"  as "pOverByStrike",
+      pr.mean::float8     as "projMean",
+      pr.stdev::float8    as "projStdev",
+      (pr.distribution->>'50')::float8 as "projMedian",
       l.reason            as reason,
       coalesce((l.reason->>'implausible')::boolean, false) as implausible,
       l."modelVersion"    as "modelVersion"
@@ -151,6 +164,60 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
   const priced = scoped.map((r) => reprice(r, book));
   priced.sort((a, b) => b.edgeCentsNet - a.edgeCentsNet);
   return priced.slice(0, limit);
+}
+
+/**
+ * One row per PROJECTION, not per strike.
+ *
+ * A Kalshi ticker is unique per strike, so the pipeline emits twenty-odd signals for
+ * one player in one game -- every rung of `...-NJIGBA11-50` through `-180` -- from a
+ * SINGLE simulated distribution. They are not twenty opportunities. They are one
+ * opinion, and their errors are perfectly correlated: a baseline that is 25% high
+ * shifts the whole ladder in lockstep and every rung shows an edge at once.
+ *
+ * Ranking those against each other let one player take seven of the top ten rows.
+ * `parlay.ts` already refuses the same pairing inside a ticket -- "the tighter one
+ * subsumes the other, so the pair adds no information" -- and this applies that same
+ * reasoning to the board.
+ *
+ * The surviving row is the rung with the best edge, and it leads with the model's
+ * projected NUMBER rather than its disagreement with the price.
+ */
+export type ProjectionRow = BoardRow & {
+  /** Strikes quoted for this projection -- how many rows collapsed into this one. */
+  ladderRungs: number;
+};
+
+export async function getProjectionBoard(
+  limit = 40,
+  gameId?: string,
+): Promise<ProjectionRow[]> {
+  // Deliberately wide: the whole ladder has to be seen to pick its best rung and to
+  // count the rest honestly. getBoard reprices before slicing, so the winner is
+  // chosen on live prices where a live price exists.
+  const rows = await getBoard(1000, gameId);
+
+  // Ticker minus its strike segment is exactly (player, market type, game) -- the
+  // identity of the projection. Using the player's NAME would merge two games in a
+  // double-header week and split a name the resolver spelled differently.
+  const keyOf = (t: string) => t.slice(0, t.lastIndexOf("-"));
+
+  const best = new Map<string, ProjectionRow>();
+  for (const r of rows) {
+    const key = keyOf(r.marketTicker);
+    const cur = best.get(key);
+    if (!cur) {
+      best.set(key, { ...r, ladderRungs: 1 });
+    } else if (r.edgeCentsNet > cur.edgeCentsNet) {
+      best.set(key, { ...r, ladderRungs: cur.ladderRungs + 1 });
+    } else {
+      cur.ladderRungs += 1;
+    }
+  }
+
+  return [...best.values()]
+    .sort((a, b) => b.edgeCentsNet - a.edgeCentsNet)
+    .slice(0, limit);
 }
 
 /** Most recent successful run per job, for the staleness banner. */
@@ -297,7 +364,7 @@ export async function getParlayLegs(limit = 300) {
       coalesce(pr."gameId", '') as "gameId",
       t.abbrev as team,
       pr."marketType" as "marketType",
-      nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
+      l.strike::float8 as strike,   -- floor_strike, not the ticker suffix
       l.side as side,
       l."modelProb"::float8 as "modelProb",
       l."marketProb"::float8 as "marketProb",
@@ -391,7 +458,15 @@ export async function getNextSlate(): Promise<SlateGame[]> {
   `;
 }
 
-/** Highest-edge validated signals, for the slate's headline list. */
+/**
+ * Highest-edge signals for the slate's headline list, ONE PER PROJECTION.
+ *
+ * `row_number() over (partition by ...)` is what keeps this honest. Without it the
+ * six headline slots could all be six rungs of one player's ladder -- one opinion
+ * shown six times, which is what the list is least able to survive at that size.
+ * The partition is the projection, so a player still appears twice if his receptions
+ * and his receiving yards are separately mispriced; those are two claims.
+ */
 export async function getTopEdges(limit = 6) {
   return prisma.$queryRaw<
     { player: string; marketType: string; strike: number | null; side: string;
@@ -401,18 +476,27 @@ export async function getTopEdges(limit = 6) {
       select distinct on (s."marketTicker") s.*
       from "Signal" s where s."closeTime" > now()
       order by s."marketTicker", s."runTs" desc
+    ),
+    best as (
+      select l.*, pr."marketType" as mt, pr."playerId" as pid, pr."gameId" as gid,
+             row_number() over (
+               partition by pr."playerId", pr."marketType", pr."gameId"
+               order by l."edgeCentsNet" desc
+             ) as rn
+      from latest l
+      join "Projection" pr on pr.id = l."projectionId"
+      where coalesce((l.reason->>'implausible')::boolean,false) = false
+        and l."edgeCentsNet" > 0
     )
     select coalesce(p."fullName",'unresolved') as player,
-           pr."marketType" as "marketType",
-           nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
-           l.side, l."edgeCentsNet"::float8 as "edgeCentsNet",
-           l.tier::text as tier, p."headshotUrl" as "headshotUrl"
-    from latest l
-    join "Projection" pr on pr.id = l."projectionId"
-    left join "Player" p on p.id = pr."playerId"
-    where coalesce((l.reason->>'implausible')::boolean,false) = false
-      and l."edgeCentsNet" > 0
-    order by l."edgeCentsNet" desc
+           b.mt as "marketType",
+           b.strike::float8 as strike,   -- floor_strike, not the ticker suffix
+           b.side, b."edgeCentsNet"::float8 as "edgeCentsNet",
+           b.tier::text as tier, p."headshotUrl" as "headshotUrl"
+    from best b
+    left join "Player" p on p.id = b.pid
+    where b.rn = 1
+    order by b."edgeCentsNet" desc
     limit ${limit}
   `;
 }
@@ -556,13 +640,15 @@ export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
       p."depthPos" as "depthPos", p."depthRank" as "depthRank",
       p."isStarter" as "isStarter",
       t.abbrev as team, pr."marketType" as "marketType", pr."gameId" as "gameId",
-      nullif(regexp_replace(l."marketTicker", '^.*-', ''), '')::float8 as strike,
+      l.strike::float8 as strike,   -- floor_strike, not the ticker suffix
       l.side as side,
       l."modelProb"::float8 as "modelProb", l."marketProb"::float8 as "marketProb",
       l."feeCents"::float8 as "feeCents", l."edgeCentsNet"::float8 as "edgeCentsNet",
       l."kellyFraction"::float8 as kelly, l.tier::text as tier, l."sampleN" as "sampleN",
       l."runTs" as "runTs", l."closeTime" as "closeTime", l."priceAsOf" as "priceAsOf",
       pr."pOverByStrike" as "pOverByStrike",
+      pr.mean::float8 as "projMean", pr.stdev::float8 as "projStdev",
+      (pr.distribution->>'50')::float8 as "projMedian",
       l.reason as reason,
       coalesce((l.reason->>'implausible')::boolean, false) as implausible,
       l."modelVersion" as "modelVersion"

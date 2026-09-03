@@ -257,6 +257,12 @@ model Signal {
   /// Timestamp of the snapshot this price came from, so the UI can show how old the
   /// quote is rather than implying it is current.
   priceAsOf     DateTime?
+  /// The market's REAL strike -- Kalshi's `floor_strike`, not the ticker suffix. They
+  /// differ by 0.5 on every count market: "8+ receptions" is ticker `...-8` and
+  /// settles on MORE THAN 7.5. The board used to parse the suffix, which both
+  /// displayed the wrong number and broke live repricing, because `pOverByStrike` is
+  /// keyed on the floor strike and no lookup for "8" ever matched "7.5".
+  strike        Decimal? @db.Decimal(10, 2)
   result        SignalResult?
   source        String
   ingestedAt    DateTime @default(now())

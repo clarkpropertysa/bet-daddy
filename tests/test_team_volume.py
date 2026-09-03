@@ -4,6 +4,7 @@ import pytest
 
 from pipeline.model.player_volume import (
     MAX_SPLIT_SWING,
+    OWN_RATE_PRIOR,
     project_player_volume,
     split_adjustment,
 )
@@ -131,11 +132,81 @@ def test_overlapping_absences_take_the_largest_not_the_sum():
 USAGE_SCHEMA = pa.schema([("player_id", pa.string()), ("target_share", pa.float64())])
 
 
-def test_thin_share_falls_back_to_the_raw_rate():
+def test_thin_share_falls_back_to_the_players_own_rate():
     """An unreliable share multiplied by team volume is worse than the count it
-    replaced, so below the games floor the raw per-game rate is used and said so."""
+    replaced, so below the games floor the player's own rate carries the projection.
+
+    It is SHRUNK toward the pool rather than used raw: 0.84 of the way, measured on
+    411 player-seasons (`player_volume.OWN_RATE_PRIOR`). The share is what is
+    discarded here, not the regression to the mean.
+    """
     u = pa.Table.from_pylist(
         [{"player_id": "P", "target_share": 0.3}] * 2, schema=USAGE_SCHEMA)
-    pv = project_player_volume(u, None, "P", 36.0, fallback_per_game=7.0)
-    assert pv.projected == 7.0
-    assert "raw per-game rate" in pv.notes
+    pv = project_player_volume(u, None, "P", 36.0, fallback_per_game=7.0,
+                               position="WR")
+    pool, k = OWN_RATE_PRIOR[("target_share", "WR")]
+    assert pv.projected == pytest.approx(pool + (7.0 - pool) * k)
+    assert pv.projected < 7.0          # a high rate regresses down
+    assert "his own per-game rate" in pv.notes
+
+
+def test_a_low_rate_regresses_upward():
+    """Shrinkage is toward the pool, not downward. A below-pool player must rise."""
+    u = pa.Table.from_pylist(
+        [{"player_id": "P", "target_share": 0.05}] * 2, schema=USAGE_SCHEMA)
+    pv = project_player_volume(u, None, "P", 36.0, fallback_per_game=2.0,
+                               position="WR")
+    assert 2.0 < pv.projected < OWN_RATE_PRIOR[("target_share", "WR")][0]
+
+
+def test_the_level_no_longer_tracks_team_volume():
+    """The anchor is the player's own rate, so doubling team volume with no game-script
+    ratio must NOT double his targets. That coupling is what inflated a Seattle
+    receiver to 12.0 targets against a 9.6 season average."""
+    u = pa.Table.from_pylist(
+        [{"player_id": "P", "target_share": 0.3}] * 8, schema=USAGE_SCHEMA)
+    lo = project_player_volume(u, None, "P", 20.0, fallback_per_game=7.0,
+                               position="WR")
+    hi = project_player_volume(u, None, "P", 40.0, fallback_per_game=7.0,
+                               position="WR")
+    assert lo.projected == pytest.approx(hi.projected)
+
+
+def test_game_script_ratio_is_the_only_team_channel():
+    """What a spread or a wind forecast is allowed to do: move the level proportionally."""
+    u = pa.Table.from_pylist(
+        [{"player_id": "P", "target_share": 0.3}] * 8, schema=USAGE_SCHEMA)
+    flat = project_player_volume(u, None, "P", 30.0, fallback_per_game=7.0,
+                                 position="WR")
+    windy = project_player_volume(
+        u, None, "P", 27.0, fallback_per_game=7.0, game_script_ratio=0.9,
+        position="WR")
+    assert windy.projected == pytest.approx(flat.projected * 0.9)
+
+
+def test_a_quarterback_is_not_shrunk_toward_the_running_back_pool():
+    """The bug this keying exists to prevent.
+
+    Pooling every rusher gives a mean of 9.01 carries a game -- a running back's
+    number. Shrinking a quarterback toward it inflated Sam Darnold's rushing
+    projection to twice his own rate and put him top of the board.
+    """
+    u = pa.Table.from_pylist(
+        [{"player_id": "P", "carry_share": 0.05}] * 8,
+        schema=pa.schema([("player_id", pa.string()), ("carry_share", pa.float64())]))
+    qb = project_player_volume(u, None, "P", 26.0, metric="carry_share",
+                               fallback_per_game=2.5, position="QB")
+    rb = project_player_volume(u, None, "P", 26.0, metric="carry_share",
+                               fallback_per_game=2.5, position="RB")
+    assert qb.projected < rb.projected
+    assert qb.projected < 2 * 2.5
+
+
+def test_an_unmeasured_position_is_left_unshrunk_rather_than_guessed():
+    """A receiving fullback has no fitted pool. Not shrinking costs accuracy; shrinking
+    toward someone else's pool costs correctness."""
+    u = pa.Table.from_pylist(
+        [{"player_id": "P", "target_share": 0.1}] * 8, schema=USAGE_SCHEMA)
+    pv = project_player_volume(u, None, "P", 30.0, fallback_per_game=3.0,
+                               position="FB")
+    assert pv.projected == pytest.approx(3.0)

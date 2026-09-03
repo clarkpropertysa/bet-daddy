@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Empty } from "@/components/Empty";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { pct, priceCents } from "@/lib/format";
+import { pct, priceCents, strikeLabel } from "@/lib/format";
 import { labelFor } from "@/lib/markets";
 import { CONFIDENCE_COPY, rateParlay, type Leg } from "@/lib/parlay";
 
@@ -110,7 +110,7 @@ export function ParlayBuilder({ available }: { available: PickRow[] }) {
                   {a.player}
                 </span>
                 <span className="eyebrow">
-                  {labelFor(a.marketType)} · {a.side} {a.strike ?? ""}
+                  {labelFor(a.marketType)} · {strikeLabel(a.strike, a.side)}
                 </span>
               </span>
               <span className="odds-box shrink-0 text-[12px]">{pct(a.modelProb, 0)}</span>
@@ -139,7 +139,7 @@ export function ParlayBuilder({ available }: { available: PickRow[] }) {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12px] text-white">{l.player}</span>
                   <span className="block text-[10px] text-steel-400">
-                    {labelFor(l.marketType)} · {l.side} {l.strike ?? ""}
+                    {labelFor(l.marketType)} · {strikeLabel(l.strike, l.side)}
                   </span>
                 </span>
                 <span className="tnum shrink-0 text-[11px] text-steel-300">
@@ -165,7 +165,8 @@ export function ParlayBuilder({ available }: { available: PickRow[] }) {
             <ul className="mt-1.5 space-y-0.5">
               {rating.contradictions.map(([a, b], i) => (
                 <li key={i} className="text-[10.5px] leading-relaxed text-neg">
-                  {a.player} {a.side} {a.strike} and {b.side} {b.strike} —{" "}
+                  {a.player} {strikeLabel(a.strike, a.side)} and{" "}
+                  {strikeLabel(b.strike, b.side)} —{" "}
                   {labelFor(a.marketType)}, same game.
                 </li>
               ))}

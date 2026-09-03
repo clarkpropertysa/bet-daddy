@@ -21,6 +21,10 @@ export function Prediction({
   // Defaults to the over: compute_edge only records "no" when it picked that side,
   // so an absent value means yes.
   const over = (side ?? "yes") === "yes";
+  // `strike` is Kalshi's floor_strike. A market titled "8+ receptions" carries 7.5,
+  // because it settles on MORE THAN 7.5 -- so the number to show a reader is 8, and
+  // the yes side is "at least 8", not "over 8", which would read as needing nine.
+  const stated = strike === null ? null : Math.ceil(strike);
   return (
     <span className="block">
       <span className="flex items-baseline gap-1.5">
@@ -29,9 +33,9 @@ export function Prediction({
             over ? "bg-steel-900 text-white" : "bg-steel-200 text-steel-900"
           }`}
         >
-          {over ? "over" : "under"}
+          {over ? "at least" : "under"}
         </span>
-        <span className="tnum text-[15px] font-semibold text-ink">{strike ?? "—"}</span>
+        <span className="tnum text-[15px] font-semibold text-ink">{stated ?? "—"}</span>
         <span className="text-[12px] text-ink-2">{labelFor(marketType).toLowerCase()}</span>
       </span>
       {/* The game the line belongs to. Without it a preseason 50-yard line reads as

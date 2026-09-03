@@ -44,6 +44,10 @@ import pyarrow as pa
 # Measured over 96 team-seasons; see module docstring.
 PLAYS_SHRINKAGE = 0.14
 PASS_RATE_SHRINKAGE = 0.39
+#: Targets per pass PLAY. Year-over-year r = 0.502 (r^2 = 0.252) over 96
+#: team-seasons -- the most stable of the three, since it is mostly a team's sack and
+#: scramble rate.
+TARGET_RATIO_SHRINKAGE = 0.50
 
 # pass_rate = intercept + slope * team_spread (positive spread = favoured)
 SPREAD_PASS_RATE_SLOPE = -0.00316
@@ -53,6 +57,8 @@ FULL_WEIGHT_GAMES = 6
 
 LEAGUE_PLAYS_PER_GAME = 61.3
 LEAGUE_PASS_RATE = 0.574
+#: 0.8950 / 0.8892 / 0.8932 / 0.8904 across 2022-25 -- flat enough to be a constant.
+LEAGUE_TARGET_RATIO = 0.891
 
 
 @dataclass(frozen=True)
@@ -64,9 +70,34 @@ class TeamVolume:
     pass_rate: float
     games_current: int
     prior_only: bool
+    #: Targets per pass play. Sacks and throwaways are pass plays with no receiver.
+    target_ratio: float = LEAGUE_TARGET_RATIO
+
+    @property
+    def targets(self) -> float:
+        """Team TARGETS -- the denominator `usage.py` divides by for target_share.
+
+        NOT `pass_attempts`. A share whose denominator excludes sacks and throwaways
+        must be multiplied by a volume that also excludes them; pairing it with pass
+        PLAYS inflates every receiving projection by about 11%, always upward. This
+        is the exact error `usage.py:68-71` warns about, made one module over.
+
+        Derived from `pass_attempts` rather than stored, so the spread adjustment in
+        `project_for_game` flows through to targets automatically.
+        """
+        return self.pass_attempts * self.target_ratio
 
 
 def _team_query(pbp_path: str, season_type: str) -> str:
+    """Per-team pace, pass rate, and the share of pass plays that are TARGETS.
+
+    The scrimmage filter must match `features/usage.py:_SCRIMMAGE` exactly. The two
+    modules divide the same plays -- usage.py supplies the numerator (a player's
+    share), this module the denominator (team volume) -- and any play counted by one
+    and not the other biases their product. They disagreed on `special` and
+    `qb_kneel`, so `carry_share`'s denominator included kneels while the rush
+    attempts it multiplied did not.
+    """
     return f"""
         with plays as (
             select * from read_parquet('{pbp_path}')
@@ -74,11 +105,19 @@ def _team_query(pbp_path: str, season_type: str) -> str:
               and play_type in ('pass','run')
               and coalesce(two_point_attempt,0) = 0
               and coalesce(qb_kneel,0) = 0
+              and coalesce(special,0) = 0
         )
         select posteam team,
                count(distinct game_id) g,
                count(*)::double / count(distinct game_id) plays_pg,
-               avg(case when play_type='pass' then 1.0 else 0.0 end) pass_rate
+               avg(case when play_type='pass' then 1.0 else 0.0 end) pass_rate,
+               -- Of the pass PLAYS, the fraction that produced a target. Sacks and
+               -- throwaways have no receiver, so they are pass plays that no player
+               -- can hold a share of. See TARGET_RATIO below.
+               sum(case when play_type='pass' and receiver_player_id is not null
+                        then 1.0 else 0.0 end)
+                 / nullif(sum(case when play_type='pass' then 1.0 else 0.0 end), 0)
+                                                          as target_ratio
         from plays group by 1
     """
 
@@ -101,10 +140,12 @@ def build_team_volume(
             select p.team,
                    coalesce(c.g, 0) as games_current,
                    least(coalesce(c.g,0)::double / {FULL_WEIGHT_GAMES}, 1.0) as w,
-                   p.plays_pg  as prior_plays,
-                   p.pass_rate as prior_rate,
-                   c.plays_pg  as cur_plays,
-                   c.pass_rate as cur_rate
+                   p.plays_pg     as prior_plays,
+                   p.pass_rate    as prior_rate,
+                   p.target_ratio as prior_tratio,
+                   c.plays_pg     as cur_plays,
+                   c.pass_rate    as cur_rate,
+                   c.target_ratio as cur_tratio
             from prior p left join cur c on c.team = p.team
         )
         select team, games_current,
@@ -114,7 +155,11 @@ def build_team_volume(
                  + w * coalesce(cur_plays, {LEAGUE_PLAYS_PER_GAME})      as plays,
                (1 - w) * ({LEAGUE_PASS_RATE}
                           + (prior_rate - {LEAGUE_PASS_RATE}) * {PASS_RATE_SHRINKAGE})
-                 + w * coalesce(cur_rate, {LEAGUE_PASS_RATE})            as pass_rate
+                 + w * coalesce(cur_rate, {LEAGUE_PASS_RATE})            as pass_rate,
+               (1 - w) * ({LEAGUE_TARGET_RATIO}
+                          + (coalesce(prior_tratio, {LEAGUE_TARGET_RATIO})
+                             - {LEAGUE_TARGET_RATIO}) * {TARGET_RATIO_SHRINKAGE})
+                 + w * coalesce(cur_tratio, {LEAGUE_TARGET_RATIO})       as target_ratio
         from blended order by team
     """).to_arrow_table()
 
@@ -123,11 +168,13 @@ def volume_dict(tbl: pa.Table) -> dict[str, TeamVolume]:
     out: dict[str, TeamVolume] = {}
     for r in tbl.to_pylist():
         plays, rate = float(r["plays"]), float(r["pass_rate"])
+        tratio = float(r["target_ratio"] or LEAGUE_TARGET_RATIO)
         out[r["team"]] = TeamVolume(
             team=r["team"], plays=plays,
             pass_attempts=plays * rate, rush_attempts=plays * (1 - rate),
             pass_rate=rate, games_current=int(r["games_current"]),
             prior_only=int(r["games_current"]) == 0,
+            target_ratio=tratio,
         )
     return out
 
@@ -149,4 +196,5 @@ def project_for_game(
         team=tv.team, plays=tv.plays,
         pass_attempts=tv.plays * rate, rush_attempts=tv.plays * (1 - rate),
         pass_rate=rate, games_current=tv.games_current, prior_only=tv.prior_only,
+        target_ratio=tv.target_ratio,
     )

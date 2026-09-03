@@ -2005,3 +2005,123 @@ Older snapshots have no `no_ask` column, so the selectors read the glob with
 `union_by_name` and a missing value stays null rather than breaking the run.
 
 **Result: 396 markets, 396 quoted, 359 signals on the board.**
+
+---
+
+## Volume was inflated ~25%, and it put one player in seven of the top ten rows
+
+Reported from the board: too many rows were the same handful of players, and they read
+as disagreements with the market rather than as forecasts. Both were true, and the first
+had a cause in the model rather than in the presentation.
+
+### Two compounding errors in `player_targets = team_targets x target_share`
+
+**A unit mismatch.** `features/usage.py:127` defines `target_share` over team TARGETS,
+and its own comment warns that counting sacks and throwaways "inflates the denominator
+and makes target_share sum to ~0.88, not 1.0." `model/project.py` then multiplied that
+share by `TeamVolume.pass_attempts` — pass PLAYS, sacks and throwaways included.
+Measured over 2025, targets are **89.1%** of pass plays league-wide, so every receiving
+baseline was inflated ~11%, always upward. The exact error the neighbouring module
+documented, made one file over, because nothing tied the two halves together.
+
+Fixed by giving `TeamVolume` a `targets` property derived from a measured per-team
+`target_ratio` (year-over-year r = 0.502, shrunk 0.50). `tests/test_volume_units.py`
+now pins the invariant: for every team, `usage.py`'s `team_targets` must equal
+`TeamVolume.targets`. The same test caught that the two scrimmage filters disagreed on
+`qb_kneel`, which biased `carry_share` the other way.
+
+**Shrinking one half and not the other.** `PLAYS_SHRINKAGE = 0.14` pulls a team's pace
+almost to the league mean, correctly, for predicting that team's own next-season pace.
+But pairing a mean-reverted team volume with an un-reverted player share breaks the
+identity: it lifts players on low-volume offences and drops those on high-volume ones.
+
+Seattle threw 32.4 times a game in 2025, second-lowest in the league:
+
+| | team targets/g | x his 0.368 share | |
+|---|---|---|---|
+| SEA actual | 26.8 | **9.9** | his real average: 9.6 |
+| what the model used | 33.4 | **12.3** | the model stated 12.0 |
+
+That put Jaxon Smith-Njigba's projected mean at **132.9** receiving yards against a
+**105.5** season average — 106.7 even restricted to games he played 75%+ of snaps. A
+mean above the whole ladder shows a positive edge on *every rung at once*, which is how
+one player came to hold 14 `rec_yds` rows and 11 `receptions` rows and sweep the board.
+
+### The measurement, and what it changed
+
+There is an identity hiding in the formula: `share x team_volume` **equals** the
+player's own per-game rate exactly, when neither half is shrunk. So the decomposition
+can only earn its keep through the shrinkage. Tested on 411 player-seasons, 2022-25:
+
+| baseline | RMSE |
+|---|---|
+| share x shrunk team volume (what shipped) | 1.541 |
+| share x unshrunk team volume | 1.523 |
+| own rate x shrunk team ratio | 1.351 |
+| **own rate, shrunk to the pool** | **1.328** |
+
+The shrinkage does not merely fail to help — it is the worst of the four. Prior-season
+team volume carries r² = 0.021 for plays, so it was moving the estimate away from the
+one quantity that does predict.
+
+**The level is now the player's own rate, regressed toward the pool of players in his
+own position; team volume enters only as a RATIO of adjusted to unadjusted** — spread,
+wind, and teammate absence, which are genuinely new information about this game. With no
+adjustment the ratio is 1.0 and the projection is the measured-best estimator.
+
+**Position is not optional.** A single pool was tried first and is actively harmful:
+pooling every rusher gives 9.01 carries a game, which is a running back's number, and
+shrinking a QUARTERBACK toward it pulled Sam Darnold from his own 8.7 rushing yards to
+17.5 — straight to the top of the board on an edge that was pure artefact. Pools are
+fitted per (metric, position) and an unmeasured pair is left **unshrunk**, because
+shrinking toward the wrong pool is worse than not shrinking.
+
+Fitted in `scripts/fit_volume_baseline.py`; constants in `player_volume.OWN_RATE_PRIOR`.
+
+Across all 43 projections with a 2025 comparison, the median projected-to-actual ratio
+is now **0.968** and the mean **1.000**.
+
+### A third no-op in the same family
+
+`baseline_override = tvq.pass_attempts * own` where `own = attempts_per_game /
+tvq.pass_attempts` cancels exactly, so the QB path's spread and wind terms moved nothing
+while the comment above it claimed passing props were connected to game script. The
+share is now taken off the *unadjusted* team volume and applied to the adjusted one.
+
+## The board shows one row per projection, led by the projection
+
+A Kalshi ticker is unique per strike, so the pipeline emits twenty-odd signals for one
+player in one game from a **single** simulated distribution. Their errors are perfectly
+correlated. `getBoard` deduped on `distinct on (marketTicker)`, which collapses repeated
+runs of one market and does nothing about one player holding many.
+
+`parlay.ts:195-222` already refuses this pairing inside a ticket — *"the tighter one
+subsumes the other, so the pair adds no information"* — and that reasoning now applies
+to the board. `getProjectionBoard` keeps the best rung per (player, market, game) and
+reports how many lines it stood for; `getTopEdges` partitions the same way, since six
+headline slots are least able to survive being six views of one opinion.
+
+Each row leads with the model's projected number and shows the market it disagrees with
+second. `/board` deliberately keeps every strike — that is what it is for.
+
+## Two display defects the strike work exposed
+
+**Live repricing had been dead.** `getBoard` parsed the strike off the ticker suffix
+(`130`) while `Projection.pOverByStrike` is keyed on `floor_strike` (`129.5`).
+`pOverAtStrike` tries `"130"`, `"130.0"`, `"130"` and never `"129.5"`, so it returned
+null and every row fell back to `priceSource: "stored"`. Measured against production:
+**0 of 359** rows resolved. `Signal.strike` now stores the real strike and all 359
+resolve. `pOverAtStrike` still refuses to interpolate, which was never the problem.
+
+**Every strike read one too high.** "8+ receptions" settles on more than 7.5, so
+rendering the floor as "over 8" asks for nine. The yes side is now stated the way the
+market states it — "at least 8" — and the no side, "under 8", was already right.
+
+## `backfill-history` was broken by its own fix
+
+`ace45c5` changed `_strike` to take the market dict so it could read `floor_strike`, and
+`kalshi_backfill.py` still passed a ticker string. Every run from 2026-09-02T23:32
+onward died with `AttributeError`. This is the **durable** path for price history — the
+15-minute archiver is best-effort — so it silently stopped the one job whose data cannot
+be re-fetched later. Fixed, and the archive now records 249.5 where it had been writing
+250.

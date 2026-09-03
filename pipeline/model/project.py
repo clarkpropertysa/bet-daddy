@@ -701,10 +701,17 @@ def run(
             # props to game script: an underdog throws more.
             if model in ("passing_yards", "passing_tds") and team_vol \
                     and team_code in team_vol:
-                tvq = _apply_wind(project_for_game(team_vol[team_code], team_spread), wx)
+                # His SHARE comes off the unadjusted team volume; the adjustment is
+                # then applied to that share. Dividing and multiplying by the same
+                # adjusted number, as this did, cancels exactly -- so the spread and
+                # wind terms moved nothing and `baseline_override` was just
+                # `attempts_per_game` under another name, while the comment above
+                # claimed passing props were connected to game script.
+                tv_base = team_vol[team_code]
+                tvq = _apply_wind(project_for_game(tv_base, team_spread), wx)
                 # keep his own share of dropbacks rather than assuming he takes all
-                own = (pi.attempts_per_game / tvq.pass_attempts
-                       if tvq.pass_attempts else 0)
+                own = (pi.attempts_per_game / tv_base.pass_attempts
+                       if tv_base.pass_attempts else 0)
                 if 0.5 <= own <= 1.15:
                     baseline_override = tvq.pass_attempts * own
                     share_note = type("SN", (), {
@@ -713,15 +720,28 @@ def run(
                         "split_teammate": None, "notes": None})()
 
             if share_metric and team_vol and usage_tbl is not None and team_code in team_vol:
-                tv = _apply_wind(project_for_game(team_vol[team_code], team_spread), wx)
-                team_units = (tv.pass_attempts if share_metric == "target_share"
+                tvb = team_vol[team_code]
+                tv = _apply_wind(project_for_game(tvb, team_spread), wx)
+                # tv.targets, NOT tv.pass_attempts. `usage.py` divides a player's
+                # targets by team TARGETS, which excludes sacks and throwaways;
+                # multiplying that share back by pass PLAYS inflated every receiving
+                # baseline ~11%, always upward, on top of any other adjustment.
+                team_units = (tv.targets if share_metric == "target_share"
                               else tv.rush_attempts)
+                base_units = (tvb.targets if share_metric == "target_share"
+                              else tvb.rush_attempts)
+                # Adjusted over unadjusted, so this carries the spread and the wind
+                # and NOT the prior-season level. Measured over 411 player-seasons,
+                # that level predicts worse than the player's own rate; see the
+                # measurement table in player_volume.py.
+                script_ratio = (team_units / base_units) if base_units else 1.0
                 raw_pg = (pi.targets_per_game if share_metric == "target_share"
                           else pi.carries_per_game)
                 pvol = project_player_volume(
                     usage_tbl, splits_tbl, xr["gsis_id"], team_units,
                     absent_teammates=absent_ids, metric=share_metric,
-                    fallback_per_game=raw_pg)
+                    fallback_per_game=raw_pg, game_script_ratio=script_ratio,
+                    position=xr.get("position"))
                 if pvol and pvol.projected > 0:
                     baseline_override = pvol.projected
                     share_note = pvol
@@ -933,8 +953,8 @@ def run(
                       (id, "projectionId", "marketTicker", "runTs", side, "modelProb",
                        "marketProb", "feeCents", "edgeCentsNet", "kellyFraction",
                        tier, "sampleN", reason, "modelVersion", "featureAsOf",
-                       "closeTime", "priceAsOf", source, "ingestedAt")
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
+                       "closeTime", "priceAsOf", strike, source, "ingestedAt")
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (str(uuid.uuid4()), proj_id, m["market_ticker"], now,
                      edge.side,
@@ -945,7 +965,12 @@ def run(
                      # Stored so the board can drop a market the moment it closes.
                      # Without it the only ordering available is "most recent run",
                      # which happily serves a game that finished last month.
-                     m["close_time"], price_as_of, "model", now),
+                     m["close_time"], price_as_of,
+                     # The real strike, not the ticker suffix. The board renders this
+                     # and reprices against it; parsing the suffix was wrong by 0.5 on
+                     # every count market.
+                     strike,
+                     "model", now),
                 )
                 n_sig += 1
 

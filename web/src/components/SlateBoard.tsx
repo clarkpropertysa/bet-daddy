@@ -1,7 +1,7 @@
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Tier, type TierName } from "@/components/Tier";
 import { labelFor } from "@/lib/markets";
-import { signedCents } from "@/lib/format";
+import { signedCents, strikeLabel } from "@/lib/format";
 import Link from "next/link";
 import { TeamLogo } from "@/components/TeamLogo";
 import { readableOn, teamColor } from "@/lib/teamColor";
@@ -213,7 +213,7 @@ export function TopEdges({
               {e.player}
             </span>
             <span className="eyebrow">
-              {labelFor(e.marketType)} · {e.side} {e.strike ?? ""}
+              {labelFor(e.marketType)} · {strikeLabel(e.strike, e.side)}
             </span>
           </span>
           <Tier tier={e.tier as TierName} n={0} />

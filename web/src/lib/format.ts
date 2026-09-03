@@ -49,3 +49,30 @@ export function isStale(ts: Date | string | null | undefined, maxMins = 45): boo
   if (!ts) return true;
   return (Date.now() - new Date(ts).getTime()) / 60000 > maxMins;
 }
+
+/**
+ * How the market itself states a strike.
+ *
+ * Kalshi lists "8+ receptions" and settles it on MORE THAN 7.5, so `floor_strike` is
+ * 7.5 and the title says 8. Rendering the floor as "over 8" -- which the board did --
+ * reads as needing NINE, and is wrong in the same direction on every count market.
+ * The yes side is stated the way the market states it; the no side is its complement,
+ * where "under 8" is already exactly right.
+ */
+export function strikeLabel(strike: number | null, side: string): string {
+  if (strike === null || strike === undefined) return "—";
+  const stated = Math.ceil(strike);
+  return side === "no" ? `under ${stated}` : `${stated}+`;
+}
+
+/**
+ * A projected quantity, at the precision the quantity deserves.
+ *
+ * Yards carry no useful decimal -- a receiver projected for 94.26 yards is projected
+ * for 94 -- while receptions and touchdowns do, because the whole line moves in ones.
+ */
+export function projected(value: number | null, marketType: string): string {
+  if (value === null || value === undefined) return "—";
+  const coarse = marketType.endsWith("_yds") || marketType.endsWith("_yards");
+  return coarse ? value.toFixed(0) : value.toFixed(1);
+}

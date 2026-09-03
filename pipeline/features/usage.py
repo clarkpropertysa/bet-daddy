@@ -39,9 +39,15 @@ WOPR_AIR_YARDS_W = 0.7
 
 RED_ZONE_YARDLINE = 20
 
+# Must match `model/team_volume._team_query` exactly. This module supplies the
+# numerator of `player_targets = team_targets x share` and that one supplies the
+# denominator, so a play counted here and not there (or the reverse) biases their
+# product. They disagreed on `qb_kneel`: kneels are runs, so they inflated
+# `team_carries` here while being excluded from the rush attempts they multiply.
 _SCRIMMAGE = """
     play_type in ('pass', 'run')
     and coalesce(two_point_attempt, 0) = 0
+    and coalesce(qb_kneel, 0) = 0
     and coalesce(special, 0) = 0
 """
 

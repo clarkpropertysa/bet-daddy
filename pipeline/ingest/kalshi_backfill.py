@@ -87,8 +87,6 @@ def backfill(
                 pass
             if not candles:
                 continue
-            if not candles:
-                continue
             with_prices += 1
 
             for c in candles:
@@ -105,7 +103,7 @@ def backfill(
                     "last_price": _dec(c, "price", "close_dollars"),
                     "volume": _to_dec(c.get("volume_fp")),
                     "open_interest": _to_dec(c.get("open_interest_fp")),
-                    "strike": _strike(ticker or ""),
+                    "strike": _strike(m),
                     "status": "settled",
                     "close_time": close,
                     "mins_to_close": int((close - ts).total_seconds() // 60) if close else None,
