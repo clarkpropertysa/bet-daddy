@@ -116,11 +116,23 @@ export function gameFromTicker(
  * already scopes to one week.
  */
 export function tickerMatchesGame(ticker: string, nflverseGameId: string): boolean {
+  return eventMatchesGame(ticker.split("-")[1] ?? "", nflverseGameId);
+}
+
+/**
+ * The same comparison, from the EVENT ticker alone (`26SEP09NESEA`).
+ *
+ * `Projection.gameId` stores the event ticker, not a market ticker, so anything
+ * joining a projection to a `Game` row needs this form. Doing that join in SQL with
+ * `p."gameId" = g.id` silently matches nothing -- the two are different identifier
+ * spaces -- which is how the Slate came to report "0 props" for the only two games
+ * that had any.
+ */
+export function eventMatchesGame(seg: string, nflverseGameId: string): boolean {
   const parts = nflverseGameId.split("_");
   if (parts.length < 4) return false;
   const [, , away, home] = parts;
 
-  const seg = ticker.split("-")[1];
   if (!seg) return false;
   const m = /^\d{2}[A-Z]{3}\d{2}([A-Z]{4,8})$/.exec(seg);
   if (!m) return false;

@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { computeEdge, pOverAtStrike } from "@/lib/edge";
 import { getLiveQuotes, type LiveQuoteBook } from "@/lib/livePrices";
-import { tickerMatchesGame } from "@/lib/markets";
+import { eventMatchesGame, tickerMatchesGame } from "@/lib/markets";
 
 /** Same threshold the Python job applies. Recomputed here because a live price can
  *  move a signal across it in either direction, and a stale flag is worse than none. */
@@ -419,6 +419,26 @@ export type SlateGame = {
  * Rest, lines and venue come from GameContext/Game, both synced from nflverse.
  */
 export async function getNextSlate(): Promise<SlateGame[]> {
+  const [games, counts] = await Promise.all([
+    nextSlateGames(),
+    // Open markets, counted once per ticker rather than once per run.
+    prisma.$queryRaw<{ event: string; n: number }[]>`
+      select p."gameId" as event, count(distinct s."marketTicker")::int as n
+      from "Signal" s
+      join "Projection" p on p.id = s."projectionId"
+      where s."closeTime" > now()
+      group by 1
+    `,
+  ]);
+  return games.map((g) => ({
+    ...g,
+    signalCount: counts
+      .filter((c) => eventMatchesGame(c.event, g.gameId))
+      .reduce((acc, c) => acc + Number(c.n), 0),
+  }));
+}
+
+async function nextSlateGames(): Promise<SlateGame[]> {
   return prisma.$queryRaw<SlateGame[]>`
     with next_week as (
       select season, week from "Game"
@@ -439,12 +459,10 @@ export async function getNextSlate(): Promise<SlateGame[]> {
       coalesce(ac."isShortWeek", false) as "awayShortWeek",
       coalesce(hc."isPostBye", false) as "homePostBye",
       coalesce(ac."isPostBye", false) as "awayPostBye",
-      -- distinct on the TICKER, and open markets only. count(*) counted one row
-      -- per run, so the Slate promised three times as many props as the board
-      -- could show after three runs, and kept counting games already played.
-      (select count(distinct s."marketTicker") from "Signal" s
-        join "Projection" p on p.id = s."projectionId"
-        where p."gameId" = g.id and s."closeTime" > now())::int as "signalCount"
+      -- Filled in below, not here. Projection.gameId holds a Kalshi EVENT ticker
+      -- (26SEP09NESEA) and Game.id an nflverse id (2026_01_NE_SEA), so the obvious
+      -- p."gameId" = g.id matches nothing at all and every game reported 0 props.
+      0::int as "signalCount"
     -- CROSS JOIN, not a comma: with "Game" g, next_week nw the following JOINs
     -- bind to next_week rather than to g, and the query fails to resolve g.
     from "Game" g

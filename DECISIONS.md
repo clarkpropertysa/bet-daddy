@@ -2125,3 +2125,18 @@ onward died with `AttributeError`. This is the **durable** path for price histor
 15-minute archiver is best-effort — so it silently stopped the one job whose data cannot
 be re-fetched later. Fixed, and the archive now records 249.5 where it had been writing
 250.
+
+## The Slate reported "0 props" for every game
+
+Found while verifying the board changes. `getNextSlate` counted a game's props with
+`where p."gameId" = g.id`, but `Projection.gameId` holds a Kalshi EVENT ticker
+(`26SEP09NESEA`) and `Game.id` an nflverse id (`2026_01_NE_SEA`). Different identifier
+spaces, so the correlated subquery matched nothing and every game on the Slate linked
+to its board saying it had none — including the only two games that had any.
+
+This is the third instance of the same confusion (the board's gameId filter and the
+parlay's same-game correlation were the first two), so the comparison now lives in one
+place: `eventMatchesGame` in `markets.ts`, which `tickerMatchesGame` delegates to. The
+count is joined in TypeScript because the mapping needs the team-code alias table
+(Kalshi writes JAC/LAR where nflverse writes JAX/LA) and cannot be expressed as a SQL
+equality. NE @ SEA now reads 183 props.
