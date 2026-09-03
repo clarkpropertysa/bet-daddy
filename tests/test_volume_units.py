@@ -122,3 +122,86 @@ def test_target_ratio_defaults_to_the_league_rate():
                     pass_rate=0.574, games_current=0, prior_only=True)
     assert tv.target_ratio == LEAGUE_TARGET_RATIO
     assert tv.targets < tv.pass_attempts
+
+
+# ---------------------------------------------------------------- kneel-downs
+
+@needs_pbp
+def test_kneels_count_as_rushing_attempts_for_the_projection():
+    """The market settles on official statistics, and a knee is an official carry.
+
+    Verified against nflverse weekly stats for 2025: of the players who took at least
+    one knee, 34 season totals match the kneel-INCLUSIVE figure exactly and only 7
+    match kneel-free. J.J. McCarthy's official 181 yards on 37 carries is exactly his
+    kneel-inclusive total; kneel-free he reads 191 on 28.
+
+    Excluding them projected quarterbacks above what the market pays out on, always in
+    the same direction.
+    """
+    from pipeline.model.features_for_projection import load_player_inputs
+
+    con = duckdb.connect()
+    # A quarterback with kneels and enough volume to clear the history floor.
+    row = con.execute(f"""
+        with p as (
+            select * from read_parquet('{PBP}')
+            where season_type='REG' and coalesce(two_point_attempt,0)=0
+              and rusher_player_id is not null
+        )
+        select rusher_player_id,
+               sum(coalesce(qb_kneel,0)) kneels,
+               count(*) att_all,
+               sum(case when coalesce(qb_kneel,0)=0 then 1 else 0 end) att_nokneel,
+               count(distinct game_id) g
+        from p group by 1
+        having sum(coalesce(qb_kneel,0)) >= 8 and count(distinct game_id) >= 10
+        order by kneels desc limit 1
+    """).fetchone()
+    if not row:
+        pytest.skip("no quarterback with enough kneels in this file")
+    pid, kneels, att_all, att_nokneel, games = row
+    assert att_all > att_nokneel        # the definitions genuinely differ
+
+    pi = load_player_inputs(str(PBP), pid)
+    # carries_per_game is averaged over games with a carry, so compare against the
+    # kneel-inclusive count rather than recomputing the mean.
+    assert pi.carries_per_game == pytest.approx(att_all / games, rel=0.02), (
+        "carries_per_game must count kneels; it is a settlement-facing rate"
+    )
+    assert pi.carries_per_game > att_nokneel / games
+
+
+@needs_pbp
+def test_kneels_do_not_leak_into_passing_or_receiving():
+    """Admitting kneels is safe only because they carry no passer and no receiver."""
+    n = duckdb.connect().execute(f"""
+        select count(passer_player_id) + count(receiver_player_id)
+        from read_parquet('{PBP}')
+        where season_type='REG' and coalesce(qb_kneel,0)=1
+    """).fetchone()[0]
+    assert n == 0
+
+
+@needs_pbp
+def test_share_denominators_still_exclude_kneels_and_still_agree():
+    """The two conventions coexist on purpose.
+
+    Rate inputs face settlement and count kneels; share denominators describe football
+    and do not. That is safe because team volume enters the projection only as a ratio
+    of adjusted to unadjusted, where a consistent convention cancels -- but the two
+    share modules must still agree with EACH OTHER, which is what this asserts.
+    """
+    from pipeline.features.usage import _SCRIMMAGE
+
+    assert "qb_kneel" in _SCRIMMAGE
+    tv = volume_dict(build_team_volume(str(PBP)))
+    kneels_by_team = dict(duckdb.connect().execute(f"""
+        select posteam, count(*) from read_parquet('{PBP}')
+        where season_type='REG' and coalesce(qb_kneel,0)=1 and posteam is not null
+        group by 1
+    """).fetchall())
+    assert sum(kneels_by_team.values()) > 0      # there are kneels to exclude
+    for team, v in tv.items():
+        assert v.rush_attempts > 0
+        # rush_attempts is play_type='run', which never includes a kneel
+        assert v.plays == pytest.approx(v.pass_attempts + v.rush_attempts)

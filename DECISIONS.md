@@ -2140,3 +2140,48 @@ place: `eventMatchesGame` in `markets.ts`, which `tickerMatchesGame` delegates t
 count is joined in TypeScript because the mapping needs the team-code alias table
 (Kalshi writes JAC/LAR where nflverse writes JAX/LA) and cannot be expressed as a SQL
 equality. NE @ SEA now reads 183 props.
+
+## Kneel-downs are official carries, and the projection was dropping them
+
+Flagged while fixing the volume inflation and confirmed afterwards. `load_player_inputs`
+excluded `qb_kneel = 1` from `carries_per_game` and from the yards-per-carry bootstrap.
+That is the right convention for describing football and the wrong one for pricing a
+market, because a Kalshi rushing-yards contract settles on the official statistic and the
+NFL scores a knee as a rushing attempt for negative yards.
+
+**Measured, not assumed.** Of the 2025 players who took at least one knee, comparing
+season totals against nflverse weekly stats:
+
+| official total matches | players |
+|---|---|
+| kneel-INCLUSIVE | **34** |
+| kneel-free | 7 |
+| neither | 18 |
+
+J.J. McCarthy's official 181 yards on 37 carries is exactly his kneel-inclusive total;
+kneel-free he reads 191 on 28. Justin Herbert, Davis Mills and Malik Willis match
+exactly the same way. (The 18 "neither" cases sit *between* the two, a smaller
+discrepancy of mixed sign — a handful of attempts nflverse credits differently — and are
+left alone rather than guessed at.)
+
+The cost of excluding them was small but strictly one-directional: **0.77 rushing yards
+per game across 38 quarterbacks, 1.8 at worst** (Stafford), and exactly **zero** for every
+running back, receiver and tight end, none of whom took a knee all season. Kneels carry
+no `passer_player_id` and no `receiver_player_id` (0 of 434), so admitting them cannot
+reach the passing or receiving inputs.
+
+Sam Darnold's rushing projection falls from 12.93 to **9.02** against his official 7.9,
+and drops off the board's top ten. Brock Purdy lands at 16.19 against 16.3.
+
+**Two conventions now coexist deliberately.** Rate inputs face settlement and count
+kneels; the share denominators in `features/usage.py` and `model/team_volume.py` describe
+football and do not. That is safe only because of the anchoring change above — team
+volume enters the projection as a RATIO of adjusted to unadjusted, where any consistent
+convention cancels. `tests/test_volume_units.py` pins both halves: that the rate inputs
+include kneels, and that the two share modules still agree with each other.
+
+The QB carries pool was refitted kneel-inclusive (4.37, k 0.76, n=52; previously 4.19,
+k 0.74, n=42 — more quarterbacks clear the two-a-game floor once knees count). Fitting a
+pool on one definition while feeding the anchor the other is a pool the projection never
+sees, and for quarterbacks the definitions differ by roughly 0.7 carries a game, which is
+most of what the shrinkage does at that volume.

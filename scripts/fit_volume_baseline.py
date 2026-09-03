@@ -82,6 +82,49 @@ def _season_rows(path: str, season: int) -> list[dict]:
     """).df().to_dict("records")
 
 
+def _rush_rows(path: str) -> list[dict]:
+    """Per (player, team) season rushing, KNEEL-INCLUSIVE.
+
+    Must match what `features_for_projection.load_player_inputs` measures, or the
+    pool fitted here is a pool the anchor never sees. Kneels are official rushing
+    attempts and the projection now counts them, so they are counted here too.
+    """
+    return duckdb.connect().execute(f"""
+        with p as (
+            select * from read_parquet('{path}')
+            where season_type = 'REG' and posteam is not null
+              and coalesce(two_point_attempt,0) = 0
+              and rusher_player_id is not null
+        ),
+        agg as (
+            select rusher_player_id pid, posteam team,
+                   count(distinct game_id) g, count(*)::double carries
+            from p group by 1,2 having count(distinct game_id) >= {MIN_GAMES}
+        )
+        select a.pid, a.team, a.g, a.carries, ros.position
+        from agg a
+        left join read_parquet('{PLAYERS}') ros on ros.gsis_id = a.pid
+    """).df().to_dict("records")
+
+
+def _fit_pools(obs: list[tuple[str, float, float]], label: str) -> None:
+    """Per-position pool mean and the shrinkage that minimises held-out error."""
+    groups: dict[str, list[tuple[float, float]]] = {}
+    for pos, own, actual in obs:
+        groups.setdefault(pos or "?", []).append((own, actual))
+    for pos, g in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        if len(g) < MIN_CELL:
+            print(f"{label:9} {pos:4} {len(g):5}   -- below the {MIN_CELL}-pair floor, "
+                  f"left unshrunk")
+            continue
+        pool = st.mean(a for _, a in g)
+        k, rmse = min(
+            ((k, _err([(pool + (o - pool) * k, a) for o, a in g])[0])
+             for k in [i / 100 for i in range(40, 106, 2)]), key=lambda x: x[1])
+        raw = _err([(o, a) for o, a in g])[0]
+        print(f"{label:9} {pos:4} {len(g):5} {pool:7.2f} {k:6.2f} {rmse:8.3f} {raw:9.3f}")
+
+
 def _shrunk_team_targets(r: dict) -> float:
     """What build_team_volume would produce for this team, prior-season only."""
     plays = LEAGUE_PLAYS_PER_GAME + (r["plays_pg"] - LEAGUE_PLAYS_PER_GAME) * PLAYS_SHRINKAGE
@@ -158,22 +201,26 @@ def main() -> None:
     print("\nPER-POSITION POOLS -- these are the constants in player_volume.py.")
     print("A position below the cell floor is deliberately left unshrunk.\n")
     print(f"{'metric':9} {'pos':4} {'n':>5} {'pool':>7} {'k':>6} {'RMSE':>8} {'unshrunk':>9}")
-    groups: dict[tuple[str, str], list[tuple[float, float]]] = {}
-    for r, actual in obs:
-        groups.setdefault(("targets", str(r.get("position") or "?")), []).append(
-            (r["targets"] / r["g"], actual))
-    for (metric, pos), g in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-        if len(g) < MIN_CELL:
-            print(f"{metric:9} {pos:4} {len(g):5}   -- below the {MIN_CELL}-pair floor, left unshrunk")
-            continue
-        pool_p = st.mean(a for _, a in g)
-        k, rmse = min(
-            ((k, _err([(pool_p + (o - pool_p) * k, a) for o, a in g])[0])
-             for k in [i / 100 for i in range(40, 106, 2)]), key=lambda x: x[1])
-        raw = _err([(o, a) for o, a in g])[0]
-        print(f"{metric:9} {pos:4} {len(g):5} {pool_p:7.2f} {k:6.2f} {rmse:8.3f} {raw:9.3f}")
-    print("\nRushing is fitted the same way over rusher_player_id; see the table in "
-          "player_volume.OWN_RATE_PRIOR.")
+    _fit_pools(
+        [(str(r.get("position") or "?"), r["targets"] / r["g"], a) for r, a in obs],
+        "targets",
+    )
+
+    # Rushing, on the same footing. KNEEL-INCLUSIVE, matching what the projection now
+    # measures -- a pool fitted on a different definition is a pool the anchor never
+    # sees, and for quarterbacks the two definitions differ by about 0.7 carries a game.
+    rush = {y: _rush_rows(paths[y]) for y in seasons}
+    robs: list[tuple[str, float, float]] = []
+    for a, b in zip(seasons, seasons[1:]):
+        nxt = {(r["pid"], r["team"]): r for r in rush[b]}
+        for r in rush[a]:
+            if r["carries"] / r["g"] < MIN_TARGETS_PG:
+                continue
+            n = nxt.get((r["pid"], r["team"]))
+            if n:
+                robs.append((str(r.get("position") or "?"),
+                             r["carries"] / r["g"], n["carries"] / n["g"]))
+    _fit_pools(robs, "carries")
 
 
 if __name__ == "__main__":

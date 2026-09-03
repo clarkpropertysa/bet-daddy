@@ -64,7 +64,13 @@ MAX_SPLIT_SWING = 0.10
 #:               TE  n=113  pool 4.28  k 0.82   RMSE 1.235  (unshrunk 1.285)
 #:               RB  n= 90  pool 3.29  k 0.60   RMSE 0.941  (unshrunk 1.049)
 #:     carries   RB  n=124  pool 10.84 k 0.68   RMSE 3.559  (unshrunk 3.904)
-#:               QB  n= 42  pool 4.19  k 0.74   RMSE 0.918  (unshrunk 1.085)
+#:               QB  n= 52  pool 4.37  k 0.76   RMSE 0.991  (unshrunk 1.134)
+#:
+#: The carries pools are fitted KNEEL-INCLUSIVE, matching what
+#: `features_for_projection` now measures. Fitting them on one definition while the
+#: anchor is fed the other is a pool the projection never sees -- for quarterbacks the
+#: two differ by about 0.7 carries a game, which is most of what the shrinkage does at
+#: that volume.
 #:
 #: POSITION IS NOT OPTIONAL HERE. A single pooled mean across positions was tried
 #: first and is actively harmful: the carries pool is 9.01 when every rusher is thrown
@@ -77,7 +83,7 @@ OWN_RATE_PRIOR: dict[tuple[str, str], tuple[float, float]] = {
     ("target_share", "TE"): (4.28, 0.82),
     ("target_share", "RB"): (3.29, 0.60),
     ("carry_share", "RB"): (10.84, 0.68),
-    ("carry_share", "QB"): (4.19, 0.74),
+    ("carry_share", "QB"): (4.37, 0.76),
 }
 
 

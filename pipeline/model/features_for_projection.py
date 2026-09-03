@@ -51,12 +51,31 @@ def load_player_inputs(
     con = duckdb.connect()
     wk = f"and week < {int(through_week)}" if through_week is not None else ""
 
+    # KNEEL-DOWNS ARE OFFICIAL RUSHING ATTEMPTS, and these rates face settlement.
+    #
+    # A Kalshi rushing-yards market settles on the official statistic, and the NFL
+    # scores a kneel as a carry for negative yards. Verified against nflverse weekly
+    # stats over 2025: of the players who took at least one knee, 34 season totals
+    # match the kneel-INCLUSIVE figure exactly against 7 that match kneel-free --
+    # J.J. McCarthy's official 181 yards on 37 carries is precisely his kneel-
+    # inclusive total, and his kneel-free total is 191 on 28.
+    #
+    # Excluding them therefore projected a quarterback ABOVE what the market pays
+    # out on, by 0.77 yards a game on average and 1.8 at worst (Stafford), always in
+    # the same direction. Only quarterbacks are affected -- no running back, receiver
+    # or tight end took a knee all season.
+    #
+    # Kneels carry no passer_player_id and no receiver_player_id (checked: 0 of 434),
+    # so admitting them here cannot touch the passing or receiving inputs. The SHARE
+    # denominators in features/usage.py and model/team_volume.py deliberately keep
+    # excluding them: those two must agree with each other -- tests/test_volume_units.py
+    # pins that -- and they now enter the projection only as a RATIO of adjusted to
+    # unadjusted volume, where any consistent convention cancels out.
     row = con.execute(f"""
         with plays as (
             select * from read_parquet('{pbp_path}')
             where season_type = '{season_type}'
               and coalesce(two_point_attempt, 0) = 0
-              and coalesce(qb_kneel, 0) = 0
               {wk}
         ),
         rec as (
@@ -100,10 +119,13 @@ def load_player_inputs(
           and season_type = '{season_type}' {wk}
     """, [player_id]).fetchall()], dtype=float)
 
+    # Kneels included for the same reason: they are attempts the market settles on,
+    # and their yardage (-1.06 on average) belongs in the efficiency draw rather than
+    # being quietly dropped from it.
     ypcarry = np.array([r[0] for r in con.execute(f"""
         select yards_gained from read_parquet('{pbp_path}')
         where rusher_player_id = ? and season_type = '{season_type}'
-          and coalesce(qb_kneel, 0) = 0 {wk}
+          and coalesce(two_point_attempt, 0) = 0 {wk}
     """, [player_id]).fetchall()], dtype=float)
 
     ypcomp = np.array([r[0] for r in con.execute(f"""
