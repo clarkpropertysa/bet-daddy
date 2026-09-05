@@ -2248,3 +2248,67 @@ none was windy says *that* instead. Verified locally at `outdoor=1013 with_wind=
 threshold a genuine 2mph reading and a failed fetch produce the identical `NO_EFFECT`
 object. The effect type cannot carry that distinction, which is precisely why the
 counters must.
+
+## The anchor assumed last season's job was this season's
+
+An audit against public reporting found the board's largest edge was wrong. **Malik
+Willis, under 149.5 passing yards, +38.9c**, off a projection of **109.4** against a
+public consensus of 175-211. The cause, from our own data:
+
+    Malik Willis 2025:  GB, 4 games, 42% of snaps, 105.5 pass yds/game
+    Model projects:     109.4
+
+He was Green Bay's backup and is Miami's starting quarterback. The model reproduced a
+backup's per-game rate for a starter, and `MIN_GAMES = 4` admitted him by one game.
+
+**This is a cost of the anchoring change above.** Moving the level onto the player's own
+prior rate measured better, and it also made a stale role carry straight through, because
+team volume now supplies only a ratio. The improvement and the regression are the same
+edit.
+
+**The first hypothesis was wrong and was discarded.** Sample-size-dependent shrinkage
+looked obvious -- four games should count for less than seventeen -- but measured over
+244 WR season pairs the optimal shrinkage is flat (0.75 / 0.75 / 0.70 / 0.80 across 2-6,
+7-11, 12-14 and 15-18 prior games), and the fixed 0.78 costs 0.002 RMSE on the thinnest
+bucket. Thin history is not the signal. **Role change is**, and it is invisible in the
+rate history.
+
+The signal that does see it is SNAP SHARE. Median offensive snap share by depth slot,
+measured on 2025:
+
+    QB1 0.922   RB1 0.534   RB2 0.183   TE1 0.601
+    TE2 0.363   WR1 0.776   WR2 0.572   WR3 0.390
+
+Bucketing 215 receiving pairs by prior snap share over the norm for the slot the player
+occupies in the OUTCOME season:
+
+    prior_snap / role_norm      n     RMSE     bias
+    < 0.60  (role grew)        10    1.304   -0.250
+    0.80-1.25  (matched)      122    1.309   +0.213
+    > 1.60  (role shrank)      19    1.490   +1.053
+
+A player whose role shrank is over-projected by a full target per game. That direction is
+refused on measured evidence. The role-GREW direction is refused on weaker grounds --
+n=10 and the RMSE is not worse -- so it rests on sampling rather than prediction: a
+quarterback who took 42% of snaps has no observation of a starter's workload, and this
+project's answer to missing data is an empty state naming the reason.
+
+61 of 1,918 projections are now refused. Willis, Jauan Jennings (82% snaps, now WR3),
+Cooper Kupp (76%, now WR3), Jordan Mason and Chris Rodriguez Jr. all drop out; committee
+backs whose role did NOT change -- Warren and Dobbins at 51% against an RB1 norm of 0.534
+-- are correctly kept, which a blunt snap-share floor would have deleted.
+
+### A refusal that changed nothing
+
+Refusing wrote no signal, and the board went on showing Willis at the top. `getBoard`
+took the newest row per TICKER, so a market the latest run declined to price kept serving
+the superseded opinion indefinitely.
+
+All four board queries now scope to a single run: `runTs = max(runTs)` among open
+markets. project-live reprices every open, quoted, fresh market hourly, so **absence from
+the latest run is a decision**, and the board now honours it. This is the third time a
+guard in this codebase did nothing because the path it guarded was not the path being
+read.
+
+Per-snap rates scaled by an expected role -- the real fix -- are deferred until after
+Week 1 rather than rebuilt under time pressure.

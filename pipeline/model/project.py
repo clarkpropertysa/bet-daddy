@@ -30,6 +30,12 @@ from pipeline.backtest.point_in_time import (
 )
 from pipeline.features.availability import build_inactivity_table, status_lookup
 from pipeline.features.wind import describe as describe_wind, wind_effect
+from pipeline.features.role import (
+    describe as role_describe,
+    is_unsampled,
+    prior_snap_share,
+    role_ratio,
+)
 from pipeline.ingest.weather import forecast_for_game, is_outdoor as _is_outdoor_roof
 from pipeline.features.starters import STARTER_DEPTH, resolve_starters
 from pipeline.model.features_for_projection import (
@@ -466,6 +472,13 @@ def run(
     # P(inactive) must be measured on the season being projected. Pairing a 2026
     # injury report with 2025 snaps makes every cell resolve to 1.000 -- see the guard
     # in features/availability.py -- so this is now explicit rather than inherited.
+    # Prior-season snap share, for the role-change guard. Empty when snap counts are
+    # absent, which disables the check rather than refusing everything.
+    prior_snaps = (prior_snap_share(snaps_path, players_path)
+                   if snaps_path and players_path else {})
+    n_role_refused = 0
+    role_examples: dict[str, str] = {}
+
     _inactivity_snaps = current_snaps_path or snaps_path
     if injuries_path and _inactivity_snaps and players_path:
         try:
@@ -648,6 +661,25 @@ def run(
                 st = depth.get(xr["gsis_id"])
                 if st is None:
                     skip("not_starting"); continue
+
+                # And a starter whose PRIOR season was a different job has no usable
+                # per-game rate either. `player_volume` anchors the level on that rate,
+                # so a role change carries straight through to the projection: Malik
+                # Willis took 42% of Green Bay's snaps as a backup and is Miami's QB1,
+                # and the model priced him at 109.4 passing yards -- a backup's number,
+                # and the largest edge on the board. Refusing is the cheaper error.
+                _ratio = role_ratio(prior_snaps.get(xr["gsis_id"]),
+                                    st.position, st.depth_rank)
+                if is_unsampled(_ratio):
+                    n_role_refused += 1
+                    # One line per PLAYER, not per market: a refused quarterback has
+                    # twenty tickers and would otherwise fill the log by himself.
+                    _who = xr.get("full_name") or xr["gsis_id"]
+                    if _who not in role_examples:
+                        role_examples[_who] = role_describe(
+                            _ratio, st.position, st.depth_rank,
+                            prior_snaps[xr["gsis_id"]])
+                    skip("role_not_sampled_last_season"); continue
 
             try:
                 pi = load_player_inputs(pbp_path, xr["gsis_id"])
@@ -993,6 +1025,8 @@ def run(
             "with_p_inactive": n_p_inactive,
             "with_spread": n_spread,
             "outdoor_games": n_outdoor, "with_wind": n_wind,
+            "role_refused": n_role_refused,
+            "role_examples": [f"{k}: {v}" for k, v in role_examples.items()],
             "wind_venues_tried": _wx_stats["attempted"],
             "wind_venues_failed": _wx_stats["failed"],
             "teams_with_current_season": blend_teams}
@@ -1085,6 +1119,14 @@ def main():
         elif census["quoted"] and not census["fresh"]:
             print("  WARNING: every quote is older than the freshness limit. The "
                   "archiver has probably stopped -- check the archive-markets job.")
+    if r.get("role_refused"):
+        print(f"  {r['role_refused']} projections refused: last season was a "
+              "different role, so the player's own per-game rate is not a sample of "
+              "the one he holds now. This is a refusal, not a zero -- the market has "
+              "a price and we decline to disagree with it.")
+        for ex in r.get("role_examples", [])[:6]:
+            print(f"    - {ex}")
+
     tried, failed = r.get("wind_venues_tried", 0), r.get("wind_venues_failed", 0)
     if failed:
         print(f"  WARNING: {failed} of {tried} outdoor venues returned no forecast. "

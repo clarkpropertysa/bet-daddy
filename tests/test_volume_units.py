@@ -205,3 +205,68 @@ def test_share_denominators_still_exclude_kneels_and_still_agree():
         assert v.rush_attempts > 0
         # rush_attempts is play_type='run', which never includes a kneel
         assert v.plays == pytest.approx(v.pass_attempts + v.rush_attempts)
+
+
+# ---------------------------------------------------------------- role changes
+
+def test_a_backup_promoted_to_starter_is_refused():
+    """Malik Willis: 42% of Green Bay's snaps across four games in 2025, Miami's QB1
+    in 2026. The QB1 snap norm is 0.922, so his prior season contains no observation
+    of a starter's workload -- and the projection anchors the LEVEL on that rate, so
+    it came out at 109.4 passing yards against a public consensus of 175-211, as the
+    largest edge on the board."""
+    from pipeline.features.role import is_unsampled, role_ratio
+
+    assert is_unsampled(role_ratio(0.42, "QB", 1))
+
+
+def test_a_demoted_receiver_is_refused():
+    """Jauan Jennings at 82% of San Francisco's snaps, now Minnesota's WR3 behind
+    Jefferson and Addison. Measured over 215 pairs, this direction over-projects by
+    a full target per game -- the strongest signal in the table."""
+    from pipeline.features.role import is_unsampled, role_ratio
+
+    assert is_unsampled(role_ratio(0.82, "WR", 3))
+
+
+def test_a_committee_back_is_NOT_refused():
+    """The guard must not fire on players whose role simply is a timeshare. Jaylen
+    Warren and J.K. Dobbins both took ~51% of snaps and are still RB1s in committees;
+    the RB1 norm is 0.534, so nothing has changed for them. Refusing here would delete
+    most of the running back board to no purpose."""
+    from pipeline.features.role import is_unsampled, role_ratio
+
+    for snap in (0.51, 0.47, 0.62):
+        assert not is_unsampled(role_ratio(snap, "RB", 1)), snap
+
+
+def test_an_injured_starter_keeps_his_rate():
+    """Kyler Murray played five games in 2025 but at 99% of snaps. Few games is not a
+    role change, and `player_volume` already measured that thin samples deserve the
+    same shrinkage as full ones."""
+    from pipeline.features.role import is_unsampled, role_ratio
+
+    assert not is_unsampled(role_ratio(0.99, "QB", 1))
+
+
+def test_silence_is_not_a_failure():
+    """No prior snaps, an unmapped slot, or a missing depth rank must yield NO opinion.
+    Refusing on absent information would empty the board rather than clean it."""
+    from pipeline.features.role import is_unsampled, role_ratio
+
+    assert role_ratio(None, "WR", 1) is None
+    assert role_ratio(0.5, "WR", 9) is None          # WR9 has no measured norm
+    assert role_ratio(0.5, None, 1) is None
+    assert role_ratio(0.5, "WR", None) is None
+    assert not is_unsampled(None)
+
+
+def test_the_norms_are_ordered_by_seniority():
+    """A WR1 must expect more snaps than a WR2 than a WR3. If this inverts, the table
+    was transcribed wrong and every ratio is meaningless."""
+    from pipeline.features.role import ROLE_SNAP_NORM as N
+
+    assert N[("WR", 1)] > N[("WR", 2)] > N[("WR", 3)]
+    assert N[("RB", 1)] > N[("RB", 2)]
+    assert N[("TE", 1)] > N[("TE", 2)]
+    assert N[("QB", 1)] > N[("WR", 1)]

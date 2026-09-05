@@ -103,10 +103,22 @@ export type BoardStatus = {
  */
 export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]> {
   const rows = await prisma.$queryRaw<BoardRow[]>`
-    with latest as (
-      select distinct on (s."marketTicker") s.*
+    with newest_run as (
+      -- The board shows ONE run, not the newest row per ticker.
+      --
+      -- Those differ exactly when a run declines to price a market it priced before:
+      -- the refusal writes nothing, so "newest row for this ticker" keeps serving the
+      -- superseded opinion forever. That is how a refused projection stayed top of the
+      -- board after the run that refused it. project-live reprices every open, quoted,
+      -- fresh market every hour, so absence from the latest run is a decision.
+      select max(s."runTs") as ts
       from "Signal" s
       where s."closeTime" > now()
+    ),
+    latest as (
+      select distinct on (s."marketTicker") s.*
+      from "Signal" s, newest_run n
+      where s."closeTime" > now() and s."runTs" = n.ts
       order by s."marketTicker", s."runTs" desc
     )
     select
@@ -355,9 +367,15 @@ export async function getParlayLegs(limit = 300) {
       headshotUrl: string | null; position: string | null;
     }[]
   >`
-    with latest as (
+    with newest_run as (
+      -- See getBoard: newest-row-per-ticker keeps serving a market the latest run
+      -- deliberately declined to price.
+      select max(s."runTs") as ts from "Signal" s where s."closeTime" > now()
+    ),
+    latest as (
       select distinct on (s."marketTicker") s.*
-      from "Signal" s where s."closeTime" > now()
+      from "Signal" s, newest_run n
+      where s."closeTime" > now() and s."runTs" = n.ts
       order by s."marketTicker", s."runTs" desc
     )
     select
@@ -493,9 +511,15 @@ export async function getTopEdges(limit = 6) {
     { player: string; marketType: string; strike: number | null; side: string;
       edgeCentsNet: number; tier: string; headshotUrl: string | null }[]
   >`
-    with latest as (
+    with newest_run as (
+      -- See getBoard: newest-row-per-ticker keeps serving a market the latest run
+      -- deliberately declined to price.
+      select max(s."runTs") as ts from "Signal" s where s."closeTime" > now()
+    ),
+    latest as (
       select distinct on (s."marketTicker") s.*
-      from "Signal" s where s."closeTime" > now()
+      from "Signal" s, newest_run n
+      where s."closeTime" > now() and s."runTs" = n.ts
       order by s."marketTicker", s."runTs" desc
     ),
     best as (
@@ -646,12 +670,18 @@ export async function getPlayerSplits(gsisId: string): Promise<SplitRow[]> {
 /** This player's open markets, repriced against the live book exactly as the board is. */
 export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
   const rows = await prisma.$queryRaw<BoardRow[]>`
-    with latest as (
+    with newest_run as (
+      -- See getBoard: newest-row-per-ticker keeps serving a market the latest run
+      -- deliberately declined to price.
+      select max(s."runTs") as ts from "Signal" s where s."closeTime" > now()
+    ),
+    latest as (
       select distinct on (s."marketTicker") s.*
       from "Signal" s
       join "Projection" pr on pr.id = s."projectionId"
       join "Player" p on p.id = pr."playerId"
-      where s."closeTime" > now() and p."gsisId" = ${gsisId}
+      cross join newest_run n
+      where s."closeTime" > now() and s."runTs" = n.ts and p."gsisId" = ${gsisId}
       order by s."marketTicker", s."runTs" desc
     )
     select
