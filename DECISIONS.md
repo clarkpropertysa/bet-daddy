@@ -2219,3 +2219,32 @@ no-side argument. It does now, using these measured prices and the one-sided boo
 
 `LiveQuote` now carries `noAsk`, read through the same alias table as the other price
 fields.
+
+## The wind layer was an invisible coin flip in production
+
+Found while auditing the board. Consecutive `project-live` runs an hour apart, on the
+same slate, reported:
+
+    outdoor=1013  with_wind=104
+    outdoor=1013  with_wind=0
+
+Same games, same forecast horizon, materially different projections for every outdoor
+game — decided by whether an HTTP call to Open-Meteo happened to succeed, and recorded
+nowhere. `wind_for` swallowed the exception and cached `None`, which is indistinguishable
+from a calm slate.
+
+The module docstring named this exact failure ("silently treating a failed fetch as calm
+is the failure mode to design against") and the mitigation it specified — reporting
+outdoor games seen alongside adjustments applied — is what surfaced it. But the pair only
+supports an inference; nothing measured the fetch itself.
+
+Two changes. `fetch_forecast` now retries a 5xx or 429 up to `ATTEMPTS` times with
+backoff, and does NOT retry a 4xx, which will not fix itself. And the run meta counts
+`wind_venues_tried` against `wind_venues_failed`, so a failed fetch is stated rather than
+inferred: a run with failures says so loudly, and a run where every venue answered and
+none was windy says *that* instead. Verified locally at `outdoor=1013 with_wind=104`.
+
+`tests/test_wind.py` pins the part that cannot be fixed in code: below the actionable
+threshold a genuine 2mph reading and a failed fetch produce the identical `NO_EFFECT`
+object. The effect type cannot carry that distinction, which is precisely why the
+counters must.

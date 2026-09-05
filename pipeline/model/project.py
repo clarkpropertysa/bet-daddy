@@ -30,7 +30,7 @@ from pipeline.backtest.point_in_time import (
 )
 from pipeline.features.availability import build_inactivity_table, status_lookup
 from pipeline.features.wind import describe as describe_wind, wind_effect
-from pipeline.ingest.weather import forecast_for_game
+from pipeline.ingest.weather import forecast_for_game, is_outdoor as _is_outdoor_roof
 from pipeline.features.starters import STARTER_DEPTH, resolve_starters
 from pipeline.model.features_for_projection import (
     InsufficientHistory,
@@ -418,6 +418,12 @@ def run(
     # the forecast comes from Open-Meteo. A failed fetch yields None and no
     # adjustment -- never a silent zero, which would be indistinguishable from calm.
     _wx: dict[str, object] = {}
+    # Fetches attempted and fetches that came back with nothing, counted per VENUE
+    # rather than per projection. Without this pair, an Open-Meteo outage and a calm
+    # week are the same observation: `with_wind=0`. They are not the same thing, and
+    # production has already shown the difference matters -- consecutive runs an hour
+    # apart reported with_wind=104 and then with_wind=0 off the same slate.
+    _wx_stats = {"attempted": 0, "failed": 0}
 
     def wind_for(date_key: str | None):
         if not date_key or date_key not in venue_of:
@@ -427,10 +433,15 @@ def run(
         # stadium, so keying by team would fetch every forecast twice.
         cache_key = f"{sid}|{ko}"
         if cache_key not in _wx:
+            outdoor = _is_outdoor_roof(roof)
+            if outdoor:
+                _wx_stats["attempted"] += 1
             try:
                 f = forecast_for_game(sid, roof, ko)
             except Exception:
                 f = None
+            if outdoor and f is None:
+                _wx_stats["failed"] += 1
             _wx[cache_key] = wind_effect(f.wind_mph, f.lead_hours) if f else None
         return _wx[cache_key]
 
@@ -982,6 +993,8 @@ def run(
             "with_p_inactive": n_p_inactive,
             "with_spread": n_spread,
             "outdoor_games": n_outdoor, "with_wind": n_wind,
+            "wind_venues_tried": _wx_stats["attempted"],
+            "wind_venues_failed": _wx_stats["failed"],
             "teams_with_current_season": blend_teams}
 
 
@@ -1072,6 +1085,16 @@ def main():
         elif census["quoted"] and not census["fresh"]:
             print("  WARNING: every quote is older than the freshness limit. The "
                   "archiver has probably stopped -- check the archive-markets job.")
+    tried, failed = r.get("wind_venues_tried", 0), r.get("wind_venues_failed", 0)
+    if failed:
+        print(f"  WARNING: {failed} of {tried} outdoor venues returned no forecast. "
+              "Those games carry NO wind adjustment, which is not the same as calm "
+              "weather -- and two runs that disagree on this produce materially "
+              "different projections for every outdoor game. Check Open-Meteo.")
+    elif tried and not r.get("with_wind", 0):
+        print(f"  NOTE: all {tried} outdoor venues returned a forecast and none was "
+              "above the actionable threshold. This is a genuinely calm slate, not a "
+              "failed fetch.")
     if r["signals"] and r.get("with_p_inactive", 0) == 0:
         print("  WARNING: no projection carries a DNP probability. Either no injury "
               "report is published yet, or the availability table failed to build -- "

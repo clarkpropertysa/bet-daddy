@@ -125,3 +125,92 @@ def test_no_phantom_coordinates():
     ).fetchall()}
     phantom = [k for k in STADIUM_COORDS if k not in known]
     assert not phantom, f"coordinates for stadiums that do not appear: {phantom}"
+
+
+# ---------------------------------------------------------------- fetch failure
+
+def test_a_failed_fetch_is_not_calm_weather():
+    """The failure mode the whole module was designed against, now measured.
+
+    Production ran `outdoor=1013 with_wind=104` and then, an hour later on the same
+    slate, `outdoor=1013 with_wind=0`. Same games, same forecast horizon, materially
+    different projections -- decided by whether an HTTP call succeeded, and recorded
+    nowhere. `wind_effect(None)` must therefore stay inert rather than resolving to a
+    still day, and the run meta must count the failures separately.
+    """
+    from pipeline.features.wind import wind_effect
+
+    nofetch = wind_effect(None, 24.0)
+    calm = wind_effect(2.0, 24.0)
+
+    # Below the actionable threshold both collapse to the SAME object: a genuine
+    # 2mph reading and a fetch that returned nothing are literally indistinguishable
+    # here. That is not a defect in wind_effect -- there is no adjustment to make in
+    # either case -- but it is precisely why the run meta has to count fetches
+    # attempted against fetches failed. The effect object cannot carry that
+    # distinction, so something upstream must.
+    assert not nofetch.is_material
+    assert not calm.is_material
+    assert nofetch.wind_mph == calm.wind_mph == 0.0
+    assert nofetch.band == calm.band == "none"
+
+    # And a real forecast above the threshold is still material, so the layer works.
+    windy = wind_effect(18.5, 24.0)
+    assert windy.is_material and windy.wind_mph == 18.5
+
+
+def test_retry_is_configured_but_bounded():
+    """Retries exist because the failure is transient; they stay small because a full
+    slate is about two dozen memoised calls and a stuck job helps nobody."""
+    from pipeline.ingest import weather
+
+    assert weather.ATTEMPTS >= 2
+    assert weather.ATTEMPTS <= 5
+    assert 0 < weather.BACKOFF_SECONDS <= 5
+
+
+def test_a_client_error_is_not_retried():
+    """A 404 will not fix itself. Retrying it burns the budget that a 429 needs."""
+    import requests
+
+    from pipeline.ingest.weather import fetch_forecast
+    from datetime import datetime, timezone
+
+    calls = {"n": 0}
+
+    class FakeResp:
+        ok = False
+        status_code = 404
+
+    class FakeSession:
+        def get(self, *a, **k):
+            calls["n"] += 1
+            return FakeResp()
+
+    out = fetch_forecast(47.6, -122.3, datetime(2026, 9, 9, 20, tzinfo=timezone.utc),
+                         session=FakeSession())
+    assert out is None
+    assert calls["n"] == 1, "a 4xx must not be retried"
+
+
+def test_a_server_error_is_retried_then_gives_up():
+    import requests
+
+    from pipeline.ingest.weather import ATTEMPTS, fetch_forecast
+    from datetime import datetime, timezone
+
+    calls = {"n": 0}
+
+    class FakeResp:
+        ok = False
+        status_code = 503
+
+    class FakeSession:
+        def get(self, *a, **k):
+            calls["n"] += 1
+            return FakeResp()
+
+    out = fetch_forecast(47.6, -122.3, datetime(2026, 9, 9, 20, tzinfo=timezone.utc),
+                         session=FakeSession())
+    assert out is None
+    assert calls["n"] == ATTEMPTS, "a 5xx should exhaust the retry budget"

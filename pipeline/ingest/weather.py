@@ -23,12 +23,18 @@ rather than assumed now.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from datetime import datetime, timezone
 
 import requests
 
 API = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT = 20
+#: A transient failure here silently disables the wind layer for the whole run, so it
+#: is worth a couple of retries. Kept small: the job memoises per venue, so a full
+#: slate is about two dozen calls.
+ATTEMPTS = 3
+BACKOFF_SECONDS = 1.5
 
 #: Roof values that mean the game is exposed to weather. A closed retractable roof is
 #: not, and nflverse distinguishes "closed" from "open" precisely so this works.
@@ -111,28 +117,45 @@ def fetch_forecast(
     disabled, and look identical to a still day.
     """
     get = (session or requests).get
-    try:
-        r = get(
-            API,
-            params={
-                "latitude": lat, "longitude": lon,
-                "hourly": "wind_speed_10m,temperature_2m,precipitation",
-                "wind_speed_unit": "mph", "temperature_unit": "fahrenheit",
-                "precipitation_unit": "inch",
-                "forecast_days": 16, "timezone": "UTC",
-            },
-            headers={"User-Agent": "bet-daddy/0.1 (personal research)"},
-            timeout=TIMEOUT,
-        )
-        if not r.ok:
-            return None
-        h = r.json().get("hourly") or {}
-        times = h.get("time") or []
-        winds = h.get("wind_speed_10m") or []
-        if not times or len(winds) != len(times):
-            return None
-    except Exception:
-        return None
+    # RETRIED, because the failure is intermittent and its cost is invisible.
+    #
+    # Measured in production: consecutive project-live runs an hour apart reported
+    # `outdoor=1013 with_wind=104` and then `outdoor=1013 with_wind=0`. The same
+    # slate, the same forecast horizon, a materially different set of projections --
+    # decided by whether an HTTP call happened to succeed, and recorded nowhere. A
+    # single transient timeout silently reverts every outdoor game to no adjustment.
+    h: dict = {}
+    times: list = []
+    winds: list = []
+    for attempt in range(ATTEMPTS):
+        try:
+            r = get(
+                API,
+                params={
+                    "latitude": lat, "longitude": lon,
+                    "hourly": "wind_speed_10m,temperature_2m,precipitation",
+                    "wind_speed_unit": "mph", "temperature_unit": "fahrenheit",
+                    "precipitation_unit": "inch",
+                    "forecast_days": 16, "timezone": "UTC",
+                },
+                headers={"User-Agent": "bet-daddy/0.1 (personal research)"},
+                timeout=TIMEOUT,
+            )
+            if not r.ok:
+                # 4xx will not fix itself; 5xx and 429 might.
+                if r.status_code < 500 and r.status_code != 429:
+                    return None
+                raise OSError(f"HTTP {r.status_code}")
+            h = r.json().get("hourly") or {}
+            times = h.get("time") or []
+            winds = h.get("wind_speed_10m") or []
+            if not times or len(winds) != len(times):
+                return None
+            break
+        except Exception:
+            if attempt == ATTEMPTS - 1:
+                return None
+            time.sleep(BACKOFF_SECONDS * (attempt + 1))
 
     target = kickoff_utc.astimezone(timezone.utc).replace(tzinfo=None)
     best_i, best_gap = None, None
