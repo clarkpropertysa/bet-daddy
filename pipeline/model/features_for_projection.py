@@ -14,6 +14,8 @@ from dataclasses import dataclass
 import duckdb
 import numpy as np
 
+from pipeline.features.rates import shrink, shrink_samples
+
 
 @dataclass
 class PlayerInputs:
@@ -104,10 +106,12 @@ def load_player_inputs(
             coalesce((select avg(att) from pass), 0),
             coalesce((select sum(comp)::double / nullif(sum(att),0) from pass), 0),
             coalesce((select var_samp(att) / nullif(avg(att),0) from pass), 1.0),
-            coalesce((select sum(tds)::double / nullif(sum(att),0) from pass), 0)
+            coalesce((select sum(tds)::double / nullif(sum(att),0) from pass), 0),
+            coalesce((select sum(att) from pass), 0)
     """, [player_id, player_id, player_id]).fetchone()
 
-    games, tpg, cr, cpg, t_disp, c_disp, apg, comp_rate, a_disp, td_rate = row
+    (games, tpg, cr, cpg, t_disp, c_disp, apg, comp_rate, a_disp, td_rate,
+     total_att) = row
     if not games or games < min_games:
         raise InsufficientHistory(
             f"{player_id}: {games or 0} prior games, need {min_games}"
@@ -146,9 +150,15 @@ def load_player_inputs(
         # Poisson is the honest fallback rather than forcing overdispersion
         target_dispersion=max(float(t_disp), 1.0),
         carry_dispersion=max(float(c_disp), 1.0),
-        attempts_per_game=float(apg),
-        completion_rate=float(comp_rate),
-        yards_per_completion=ypcomp,
+        # REGRESSED TOWARD THE LEAGUE. Every quarterback rate here is weakly
+        # persistent -- the strongest explains 24% of the next season -- and every one
+        # was previously carried forward at full strength. Cam Ward's rookie 2.52%
+        # touchdown rate became a 0.9-touchdown projection and a 98%-confident under;
+        # Stafford's 7.7% became 2.8 a game. See features/rates.py for the fit and the
+        # attempts floor that keeps these off non-passers.
+        attempts_per_game=float(shrink(apg, "attempts_per_game", total_att) or 0.0),
+        completion_rate=float(shrink(comp_rate, "completion_rate", total_att) or 0.0),
+        yards_per_completion=shrink_samples(ypcomp, "yards_per_completion", total_att),
         attempt_dispersion=max(float(a_disp), 1.0),
-        pass_td_rate=float(td_rate),
+        pass_td_rate=float(shrink(float(td_rate), "pass_td_rate", total_att) or 0.0),
     )

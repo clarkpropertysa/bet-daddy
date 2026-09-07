@@ -2375,3 +2375,44 @@ This is the third refusal guard in this codebase and the pattern is now explicit
 the model cannot express a thing, it declines rather than averaging over it. The proper
 fix — projecting both branches and weighting by absence probability — waits with the
 per-snap rebuild until after Week 1.
+
+## Quarterback rates were carried forward at full strength
+
+Reported from the board: Cam Ward is Tennessee's starter and a touchdown is probable,
+but the model projected **0.9 passing touchdowns** and drove a 98%-confident UNDER.
+
+He threw 15 on 595 attempts as a rookie — a **2.52%** touchdown rate against a league
+average of 4.47% — and the projection reproduced it exactly, because nothing regressed
+it. The identical omission ran the other way on the same board: Stafford at a 7.7% rate
+projected 2.8 a game, a 47.6-touchdown pace, above his own outlier season.
+
+Measured over 77 quarterback season pairs, 2022-25, minimum 200 attempts:
+
+    metric                  r      pool     best k    RMSE      unshrunk
+    pass TD rate         +0.385   0.0447    0.35     0.01104    0.01375
+    completion rate      +0.439   0.6156    0.35     0.02966    0.03853
+    yards per completion +0.295  11.0589    0.25     0.85726    1.15939
+    attempts per game    +0.489  33.7092    0.45     3.20257    3.88497
+
+Not one of these is a strong signal — the best explains 24% of the next season — and all
+four were used raw. Shrinking cuts error by a fifth to a quarter on each.
+
+    Cam Ward          0.0252 -> 0.0379     0.88 -> 1.35 TDs/game
+    Matthew Stafford  0.0770 -> 0.0550     2.80 -> 1.92
+
+Both left the top of the board, which is the point: those edges were artefacts of last
+season repeated, not reads on this one.
+
+**The sample floor is the load-bearing part.** These priors are fitted on quarterbacks
+and mean nothing for anyone else. A receiver's `attempts_per_game` is zero, and shrinking
+it toward 33.7 would hand him half a starting quarterback's volume. Below 100 prior-season
+attempts the raw value passes through untouched, and a test pins it.
+
+`yards_per_completion` is an empirical draw, not a scalar, and the simulator bootstraps
+the player's own completions on purpose. It is rescaled rather than replaced: every ratio
+between samples is preserved, so the spread and the right tail stay his and only the
+central tendency regresses.
+
+Receiving and rushing efficiency are almost certainly in the same position — the earlier
+audit put their year-over-year persistence at r^2 = 0.012 and 0.021, weaker than any rate
+here — but they are not fitted yet and are left alone rather than guessed at.
