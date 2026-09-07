@@ -519,6 +519,26 @@ def run(
     n_room_refused = 0
     # A signal with no kickoff cannot be aged off the board, so this must stay zero.
     n_no_kickoff = 0
+
+    # Graded history per market family, which is what promotes a signal out of
+    # UNVALIDATED. Read once per run rather than per market.
+    clv_by_family: dict[str, tuple[int, float | None]] = {}
+    try:
+        import psycopg as _pg
+        with _pg.connect(config.DATABASE_URL) as _conn, _conn.cursor() as _c:
+            _c.execute("""
+                select p."marketType",
+                       count(*) filter (where r."settledResult" is not null),
+                       avg(r."clvCents")::float8
+                from "SignalResult" r
+                join "Signal" s on s.id = r."signalId"
+                join "Projection" p on p.id = s."projectionId"
+                where r."clvCents" is not null
+                group by 1
+            """)
+            clv_by_family = {row[0]: (int(row[1] or 0), row[2]) for row in _c.fetchall()}
+    except Exception:
+        clv_by_family = {}
     room_examples: dict[str, str] = {}
 
     if rates_injuries_path and snaps_path and players_path:
@@ -964,7 +984,15 @@ def run(
             # The REAL no-side ask when the archive has one. compute_edge otherwise
             # infers 1 - yes_ask, which is fiction on a one-sided book and produced a
             # 97c "edge" on a contract whose actual no-ask was $1.00.
-            edge_preview = compute_edge(p_over, m["yes_ask"], m.get("no_ask"))
+            # THE TIER'S INPUTS. Without these two, `assign_tier` can only ever
+            # return UNVALIDATED and `sample_n` is always 0 -- the promotion path was
+            # unreachable, so grading would have written CLV to SignalResult forever
+            # and nothing would have read it back. That is the same shape as the
+            # archiver capturing volume nobody consumed.
+            _fam = clv_by_family.get(m["market_type"], (0, None))
+            edge_preview = compute_edge(p_over, m["yes_ask"], m.get("no_ask"),
+                                        settled_contracts=_fam[0],
+                                        mean_clv_cents=_fam[1])
 
             divergence = abs(p_over - float(m["yes_ask"]))
             implausible = divergence > IMPLAUSIBLE_DIVERGENCE

@@ -16,6 +16,11 @@ profits when the yes price falls.
 CLV is measured on price movement alone and does not depend on the outcome. That is
 the point: it is a far lower-variance signal of edge than win rate, and it is readable
 after a few dozen contracts rather than a few hundred settlements.
+
+THE CLOSING LINE IS KICKOFF, not market close. Kalshi's `close_time` is a settlement
+deadline two days after the game and these markets stay open through it, so the last
+price before close has already seen most of the result. Measuring there would have made
+CLV a slow restatement of settlement and forfeited the independence above.
 """
 from __future__ import annotations
 
@@ -74,19 +79,42 @@ def price_at(
     return PricePoint(*r) if r else None
 
 
-def closing_price(archive_glob: str, market_ticker: str) -> PricePoint | None:
-    """The last archived snapshot before the market closed."""
+def closing_price(
+    archive_glob: str, market_ticker: str, kickoff=None
+) -> PricePoint | None:
+    """The last archived snapshot before KICKOFF -- the closing line.
+
+    `kickoff` is required for a meaningful answer and optional only so that callers
+    with no schedule can still see the last observed price. Without it this falls back
+    to the last snapshot before Kalshi's `close_time`, which is a settlement deadline
+    two days after the game: these markets carry `can_close_early` and stay open
+    THROUGH the game, so that price has already watched the outcome happen. CLV
+    measured against it stops being independent of the result, which is the single
+    property that makes it readable after dozens of contracts instead of hundreds.
+    """
     con = _con(archive_glob)
-    r = con.execute(
-        """
-        select market_ticker, ts, mins_to_close, yes_bid, yes_ask
-        from snaps
-        where market_ticker = ? and mins_to_close >= 0
-        order by mins_to_close asc
-        limit 1
-        """,
-        [market_ticker],
-    ).fetchone()
+    if kickoff is not None:
+        r = con.execute(
+            """
+            select market_ticker, ts, mins_to_close, yes_bid, yes_ask
+            from snaps
+            where market_ticker = ? and ts <= ?
+            order by ts desc
+            limit 1
+            """,
+            [market_ticker, kickoff],
+        ).fetchone()
+    else:
+        r = con.execute(
+            """
+            select market_ticker, ts, mins_to_close, yes_bid, yes_ask
+            from snaps
+            where market_ticker = ? and mins_to_close >= 0
+            order by mins_to_close asc
+            limit 1
+            """,
+            [market_ticker],
+        ).fetchone()
     return PricePoint(*r) if r else None
 
 

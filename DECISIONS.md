@@ -2553,3 +2553,55 @@ price.
 `yesBid`, `volume` and `openInterest` have been captured on every archive snapshot since
 the archiver was written and had never been read by anything downstream. The board could
 not previously tell a market from a single resting offer.
+
+## Pre-launch sweep: three unreachable paths and a contaminated metric
+
+Prompted by the observation that the archiver had been capturing liquidity nothing read.
+That turned out to be a pattern rather than an incident.
+
+### The closing line was measured after the game
+
+`grade.py` and `clv.py` both took "the last archived price before the market closed".
+Kalshi's `close_time` is a settlement deadline **two days after kickoff**, and these
+markets carry `can_close_early` with an `expected_expiration_time` at roughly the final
+whistle — they stay open THROUGH the game. So the "closing price" was a quote that had
+already watched the outcome happen.
+
+`clv.py`'s own docstring states the property that made the metric worth having: *"CLV is
+measured on price movement alone and does not depend on the outcome. That is the point:
+it is a far lower-variance signal of edge than win rate."* Under that definition it
+depended on the outcome almost entirely, and would have been a slow, noisy restatement of
+settlement — while the tier system treated it as independent evidence.
+
+The closing line is now the last snapshot at or before **kickoff**, which is the standard
+meaning and is what `Signal.kickoff` was added for. Settlement is read separately, since
+it cannot come from a pre-kickoff snapshot.
+
+### It was also grading games that had not been played
+
+The first corrected run graded **5,502 signals for Week 1 fixtures that have not kicked
+off**, at a mean CLV of -2.96c. Before kickoff the "last snapshot" is simply the current
+price, so CLV is noise around zero — and it would have gone into the tier maths as
+evidence the model was losing before a single game was played. Grading now requires
+`kickoff < now()`, and those rows were deleted.
+
+### The tier could never promote anything
+
+`compute_edge` derives the tier from `settled_contracts` and `mean_clv_cents`, and
+`project.py` called it with neither. `assign_tier` therefore had a constant answer of
+UNVALIDATED and `sample_n` was always 0. Grading would have written CLV to SignalResult
+every week and **nothing would ever have read it back** — the promotion path was
+unreachable, and the tier badge was decoration.
+
+The projection now loads graded CLV per market family once per run and passes it through.
+`tests/test_tier_promotion.py` pins both directions: volume with negative CLV is
+disproven rather than validated, and good CLV on a thin sample stays unvalidated.
+
+### Orderbook depth is captured and never read
+
+The archiver fetches an orderbook per market — an extra rate-limited call, capped at 400
+per run — and stores the JSON. Nothing parses it. `cadence.py` records the cost at
+3.91 GB/season. `kalshi_backfill.py`'s docstring still claims orderbook depth is "what
+this job uniquely captures", which is true and unused. Left in place rather than removed
+two days before launch: it is waste, not a correctness fault, and removing a capture is
+irreversible in a way that adding a consumer later is not.
