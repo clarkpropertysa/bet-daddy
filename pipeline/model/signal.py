@@ -108,18 +108,36 @@ def compute_edge(
         raise ValueError(f"model_prob must be in [0,1], got {p_yes}")
 
     yes_price = implied_prob_from_ask(yes_ask_dollars)
-    # If the no-side ask is not quoted, infer it from the yes bid-ask complement.
-    no_price = (Decimal(str(no_ask_dollars)) if no_ask_dollars is not None
-                else Decimal(1) - yes_price)
+
+    # THE NO SIDE IS NEVER INFERRED. It is evaluated only against a real quoted ask.
+    #
+    # `1 - yes_ask` is the no BID on any book that is not tight -- the price someone
+    # would pay YOU, not the price you pay. Kalshi listed Cam Ward's 4+ passing
+    # touchdowns at yes 0.00/0.25 and no 0.75/1.0000: the no side cannot be bought at
+    # any price, and the complement of the yes ask is 0.75, which is exactly the no
+    # bid. Inferring it recommended "under 4" on a contract that does not trade.
+    #
+    # A None here therefore means the no side is UNAVAILABLE, not unknown. That is the
+    # honest reading of an unquoted or one-sided book, and it is why the caller may
+    # pass the value straight through from the exchange without sanitising it.
+    no_price: Decimal | None = None
+    if no_ask_dollars is not None:
+        _no = Decimal(str(no_ask_dollars))
+        if Decimal(0) < _no < Decimal(1):
+            no_price = _no
 
     yes_gross = (p_yes - yes_price) * CONTRACT_CENTS
     yes_fee = marginal_fee_cents(yes_price, maker=maker)
     yes_net = yes_gross - yes_fee
 
     p_no = Decimal(1) - p_yes
-    no_gross = (p_no - no_price) * CONTRACT_CENTS
-    no_fee = marginal_fee_cents(no_price, maker=maker)
-    no_net = no_gross - no_fee
+    if no_price is None:
+        no_gross = no_fee = Decimal(0)
+        no_net = Decimal("-Infinity")
+    else:
+        no_gross = (p_no - no_price) * CONTRACT_CENTS
+        no_fee = marginal_fee_cents(no_price, maker=maker)
+        no_net = no_gross - no_fee
 
     if yes_net >= no_net:
         side, prob, price = "yes", p_yes, yes_price

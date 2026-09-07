@@ -86,3 +86,70 @@ def test_every_prior_retains_less_than_half():
     for metric, (pool, k) in QB_RATE_PRIOR.items():
         assert 0.2 <= k <= 0.5, (metric, k)
         assert pool > 0
+
+
+# ---------------------------------------------------------- skill-position rates
+
+def test_a_running_backs_catch_rate_is_replaced_by_the_league_mean():
+    """Fitted at k = 0.00 with a NEGATIVE correlation (r = -0.090, n=52): a back's own
+    catch rate predicts next season worse than knowing nothing about him. Held-out
+    error 0.0626 against 0.0937 raw."""
+    from pipeline.features.rates import SKILL_RATE_PRIOR, shrink_skill
+
+    pool, k = SKILL_RATE_PRIOR[("catch_rate", "RB")]
+    assert k == 0.0
+    for own in (0.55, 0.70, 0.92):
+        assert shrink_skill(own, "catch_rate", "RB", 60) == pytest.approx(pool)
+
+
+def test_a_receiver_keeps_more_of_his_own_rate_than_a_back():
+    """Catch rate persists for wide receivers (r = +0.442) and not for backs, so the
+    two must not share a shrinkage."""
+    from pipeline.features.rates import SKILL_RATE_PRIOR
+
+    assert SKILL_RATE_PRIOR[("catch_rate", "WR")][1] > SKILL_RATE_PRIOR[("catch_rate", "TE")][1]
+    assert SKILL_RATE_PRIOR[("catch_rate", "TE")][1] > SKILL_RATE_PRIOR[("catch_rate", "RB")][1]
+
+
+def test_yards_per_carry_barely_survives():
+    """r = +0.102 for backs. Efficiency is mostly blocking and luck, and the model was
+    treating it as identity."""
+    from pipeline.features.rates import SKILL_RATE_PRIOR, shrink_skill
+
+    pool, k = SKILL_RATE_PRIOR[("yards_per_carry", "RB")]
+    assert k <= 0.15
+    assert shrink_skill(5.8, "yards_per_carry", "RB", 200) == pytest.approx(
+        pool + (5.8 - pool) * k)
+
+
+def test_an_unmeasured_position_passes_through():
+    """A fullback has no fitted pool. Raw beats a borrowed one."""
+    from pipeline.features.rates import shrink_skill
+
+    assert shrink_skill(0.5, "catch_rate", "FB", 100) == 0.5
+    assert shrink_skill(0.5, "catch_rate", None, 100) == 0.5
+
+
+def test_thin_usage_passes_through():
+    from pipeline.features.rates import MIN_TOUCHES, shrink_skill
+
+    assert shrink_skill(0.5, "catch_rate", "WR", MIN_TOUCHES - 1) == 0.5
+    assert shrink_skill(0.5, "catch_rate", "WR", MIN_TOUCHES) != 0.5
+
+
+def test_skill_samples_keep_their_shape():
+    from pipeline.features.rates import SKILL_RATE_PRIOR, shrink_skill_samples
+
+    pool, k = SKILL_RATE_PRIOR[("yards_per_carry", "RB")]
+    arr = np.array([-2.0, 1.0, 3.0, 6.0, 40.0])
+    out = shrink_skill_samples(arr, "yards_per_carry", "RB", 200)
+    raw = float(np.mean(arr))
+    assert float(np.mean(out)) == pytest.approx(pool + (raw - pool) * k)
+    assert np.allclose(out / out[2], arr / arr[2])       # ratios preserved
+
+
+def test_skill_samples_for_an_unmeasured_position_are_untouched():
+    from pipeline.features.rates import shrink_skill_samples
+
+    arr = np.array([1.0, 2.0, 3.0])
+    assert np.allclose(shrink_skill_samples(arr, "yards_per_carry", "WR", 200), arr)

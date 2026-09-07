@@ -41,6 +41,74 @@ QB_RATE_PRIOR: dict[str, tuple[float, float]] = {
     "attempts_per_game": (33.7092, 0.45),
 }
 
+#: (metric, position) -> (league pool, fraction of the player's own deviation kept).
+#: Fitted the same way, on consecutive-season pairs with at least 40 targets or carries;
+#: see `scripts/fit_skill_rates.py`.
+#:
+#:     catch rate       WR n=209 pool 0.6294 r=+0.442 k=0.45  RMSE 0.0717 (raw 0.0819)
+#:                      TE n= 80 pool 0.7225 r=+0.154 k=0.15  RMSE 0.0610 (raw 0.0851)
+#:                      RB n= 52 pool 0.7855 r=-0.090 k=0.00  RMSE 0.0626 (raw 0.0937)
+#:     yards per catch  WR n=209 pool 12.958 r=+0.494 k=0.55  RMSE 2.1670 (raw 2.4152)
+#:                      TE n= 80 pool 10.503 r=+0.400 k=0.45  RMSE 1.6604 (raw 1.8946)
+#:                      RB n= 52 pool  7.479 r=+0.188 k=0.20  RMSE 1.4165 (raw 1.6903)
+#:     yards per carry  RB n=160 pool  4.194 r=+0.102 k=0.10  RMSE 0.6981 (raw 0.9706)
+#:                      QB n= 37 pool  4.821 r=+0.255 k=0.25  RMSE 1.1013 (raw 1.3985)
+#:
+#: A RUNNING BACK'S CATCH RATE FITS AT k = 0.00, and the correlation is NEGATIVE
+#: (r = -0.090, n=52). Taken literally that says his own history is worse than knowing
+#: nothing about him, and the league mean is the better estimate. The sample is small
+#: and the true value is probably near zero rather than below it, but zero is what
+#: minimises held-out error here (0.0626 against 0.0937 raw) and inventing a friendlier
+#: number would be choosing a prior over a measurement.
+#:
+#: Yards per carry barely persists either: an RB keeps a tenth of his deviation, which
+#: cuts error by 28%. Efficiency is mostly luck and blocking, and the model was treating
+#: it as identity.
+SKILL_RATE_PRIOR: dict[tuple[str, str], tuple[float, float]] = {
+    ("catch_rate", "WR"): (0.6294, 0.45),
+    ("catch_rate", "TE"): (0.7225, 0.15),
+    ("catch_rate", "RB"): (0.7855, 0.00),
+    ("yards_per_catch", "WR"): (12.9576, 0.55),
+    ("yards_per_catch", "TE"): (10.5030, 0.45),
+    ("yards_per_catch", "RB"): (7.4786, 0.20),
+    ("yards_per_carry", "RB"): (4.1942, 0.10),
+    ("yards_per_carry", "QB"): (4.8209, 0.25),
+}
+
+#: Targets or carries below which the skill priors do not apply.
+MIN_TOUCHES = 40
+
+
+def shrink_skill(
+    value: float | None, metric: str, position: str | None, touches: int | float
+) -> float | None:
+    """Regress a skill rate toward its POSITION's pool. Unmeasured pair: raw."""
+    if value is None or touches < MIN_TOUCHES:
+        return value
+    prior = SKILL_RATE_PRIOR.get((metric, (position or "").upper()))
+    if prior is None:
+        return value
+    pool, k = prior
+    return pool + (float(value) - pool) * k
+
+
+def shrink_skill_samples(
+    samples: np.ndarray, metric: str, position: str | None, touches: int | float
+) -> np.ndarray:
+    """Rescale an empirical draw so its mean regresses and its shape survives."""
+    if samples is None or len(samples) == 0 or touches < MIN_TOUCHES:
+        return samples
+    if (metric, (position or "").upper()) not in SKILL_RATE_PRIOR:
+        return samples
+    raw_mean = float(np.mean(samples))
+    if raw_mean <= 0:
+        return samples
+    target = shrink_skill(raw_mean, metric, position, touches)
+    if target is None or target <= 0:
+        return samples
+    return samples * (target / raw_mean)
+
+
 #: Below this many prior-season attempts the priors do not apply. They were fitted on
 #: quarterbacks; everyone else must pass through untouched.
 MIN_ATTEMPTS = 100

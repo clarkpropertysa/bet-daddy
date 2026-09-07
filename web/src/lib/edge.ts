@@ -75,22 +75,31 @@ export function computeEdge(
 ): LiveEdge {
   const pYes = modelProbOver;
   const yesPrice = yesAskDollars;
-  // With no quoted no-side ask, infer it from the yes complement.
-  const noPrice = noAskDollars ?? 1 - yesPrice;
+
+  // THE NO SIDE IS NEVER INFERRED -- see compute_edge in pipeline/model/signal.py.
+  // `1 - yesAsk` is the no BID on any book that is not tight. Cam Ward's 4+ passing
+  // touchdowns quoted yes 0.00/0.25 and no 0.75/1.0000: the no side cannot be bought,
+  // and the complement of the yes ask is exactly the no bid. A null here means the no
+  // side is UNAVAILABLE, not unknown, which is also what `tradeable()` means when it
+  // rejects a $1.00 ask.
+  const noPrice =
+    noAskDollars !== null && noAskDollars > 0 && noAskDollars < 1
+      ? noAskDollars
+      : null;
 
   const yesGross = (pYes - yesPrice) * CONTRACT_CENTS;
   const yesFee = marginalFeeCents(yesPrice, maker);
   const yesNet = yesGross - yesFee;
 
   const pNo = 1 - pYes;
-  const noGross = (pNo - noPrice) * CONTRACT_CENTS;
-  const noFee = marginalFeeCents(noPrice, maker);
-  const noNet = noGross - noFee;
+  const noGross = noPrice === null ? 0 : (pNo - noPrice) * CONTRACT_CENTS;
+  const noFee = noPrice === null ? 0 : marginalFeeCents(noPrice, maker);
+  const noNet = noPrice === null ? -Infinity : noGross - noFee;
 
   const yesWins = yesNet >= noNet;
   const side = yesWins ? "yes" : "no";
   const prob = yesWins ? pYes : pNo;
-  const price = yesWins ? yesPrice : noPrice;
+  const price = yesWins ? yesPrice : (noPrice as number);
 
   return {
     side,

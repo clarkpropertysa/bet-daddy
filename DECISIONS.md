@@ -2416,3 +2416,59 @@ central tendency regresses.
 Receiving and rushing efficiency are almost certainly in the same position — the earlier
 audit put their year-over-year persistence at r^2 = 0.012 and 0.021, weaker than any rate
 here — but they are not fitted yet and are left alone rather than guessed at.
+
+## A side you cannot buy is not a side
+
+Reported from the board: "Cam Ward UNDER 4 passing TDs isn't even available on Kalshi."
+Correct. The exchange lists the market; the no side does not trade:
+
+    KXNFLPASSTDS-26SEP13NYJTEN-TENCWARD1-4    floor 3.5
+        yes  0.0000 / 0.2500
+        no   0.7500 / 1.0000       <- no ask at any price below a dollar
+
+The board showed it at 76c, which is `1 - yes_ask`, which on this book is **exactly the
+no bid** — the price someone would pay you.
+
+This is the same phantom edge fixed once already, and the fix is what re-opened it.
+`tradeable()` correctly rejects a $1.00 ask as "a one-sided book reported as a number,
+not a price" and returns null — and null was the signal `compute_edge` used to decide it
+should INFER the price. **The guard that rejects an untradeable price was feeding the
+code that invents one.** Threading the real `no_ask` through, as was done last time, does
+nothing when the real value is the one the sanitiser discards.
+
+Both implementations now refuse to infer. A `no_ask` that is null, zero, or a dollar
+means the no side is **unavailable**, not unknown, and only the yes side is evaluated.
+That is the honest reading of a one-sided book, and it removes the inference that has now
+produced two separate top-of-board fabrications.
+
+The golden values in `check:edge` all called `computeEdge(pOver, ask)` with no no-side
+price, so every one of them was exercising the inference. They are regenerated from
+`signal.py` with explicit two-sided books, plus two one-sided cases that assert the yes
+side is chosen and no phantom edge appears.
+
+## Receiving and rushing efficiency regress too, and one of them entirely
+
+Fitted the same way, on consecutive-season pairs with at least 40 touches:
+
+    catch rate       WR n=209 pool 0.6294 r=+0.442 k=0.45  RMSE 0.0717 (raw 0.0819)
+                     TE n= 80 pool 0.7225 r=+0.154 k=0.15  RMSE 0.0610 (raw 0.0851)
+                     RB n= 52 pool 0.7855 r=-0.090 k=0.00  RMSE 0.0626 (raw 0.0937)
+    yards per catch  WR n=209 pool 12.958 r=+0.494 k=0.55  RMSE 2.1670 (raw 2.4152)
+                     TE n= 80 pool 10.503 r=+0.400 k=0.45  RMSE 1.6604 (raw 1.8946)
+                     RB n= 52 pool  7.479 r=+0.188 k=0.20  RMSE 1.4165 (raw 1.6903)
+    yards per carry  RB n=160 pool  4.194 r=+0.102 k=0.10  RMSE 0.6981 (raw 0.9706)
+                     QB n= 37 pool  4.821 r=+0.255 k=0.25  RMSE 1.1013 (raw 1.3985)
+
+**A running back's catch rate fits at k = 0.00 and the correlation is negative.** Taken
+literally, his own history predicts next season worse than knowing nothing about him.
+The sample is 52 pairs and the true value is more likely near zero than below it, but
+zero is what minimises held-out error — 0.0626 against 0.0937 — and choosing a friendlier
+number would be preferring a prior to a measurement. Yards per carry keeps a tenth.
+
+Efficiency is mostly blocking and luck, and the model was treating it as identity. The
+bootstrap arrays are rescaled rather than replaced, so each player's spread and right
+tail stay his own and only the central tendency moves; the ratio between any two samples
+is unchanged, and a test pins that.
+
+Positions with no fitted pool — a receiving fullback, a wideout taking handoffs — pass
+through raw. Borrowing another position's pool would be worse than not shrinking.

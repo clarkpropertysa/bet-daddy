@@ -14,7 +14,12 @@ from dataclasses import dataclass
 import duckdb
 import numpy as np
 
-from pipeline.features.rates import shrink, shrink_samples
+from pipeline.features.rates import (
+    shrink,
+    shrink_samples,
+    shrink_skill,
+    shrink_skill_samples,
+)
 
 
 @dataclass
@@ -49,6 +54,7 @@ def load_player_inputs(
     season_type: str = "REG",
     through_week: int | None = None,
     min_games: int = MIN_GAMES,
+    position: str | None = None,
 ) -> PlayerInputs:
     con = duckdb.connect()
     wk = f"and week < {int(through_week)}" if through_week is not None else ""
@@ -107,11 +113,13 @@ def load_player_inputs(
             coalesce((select sum(comp)::double / nullif(sum(att),0) from pass), 0),
             coalesce((select var_samp(att) / nullif(avg(att),0) from pass), 1.0),
             coalesce((select sum(tds)::double / nullif(sum(att),0) from pass), 0),
-            coalesce((select sum(att) from pass), 0)
+            coalesce((select sum(att) from pass), 0),
+            coalesce((select sum(t) from rec), 0),
+            coalesce((select sum(a) from rush), 0)
     """, [player_id, player_id, player_id]).fetchone()
 
     (games, tpg, cr, cpg, t_disp, c_disp, apg, comp_rate, a_disp, td_rate,
-     total_att) = row
+     total_att, total_tgt, total_car) = row
     if not games or games < min_games:
         raise InsufficientHistory(
             f"{player_id}: {games or 0} prior games, need {min_games}"
@@ -142,10 +150,17 @@ def load_player_inputs(
         player_id=player_id,
         games=int(games),
         targets_per_game=float(tpg),
-        catch_rate=float(cr),
+        # Skill rates regress toward the POSITION's pool, not the player's own past.
+        # A running back's catch rate fits at k = 0.00 with a negative correlation --
+        # his history is worse than the league mean -- and yards per carry keeps a
+        # tenth. See features/rates.py.
+        catch_rate=float(
+            shrink_skill(cr, "catch_rate", position, total_tgt) or 0.0),
         carries_per_game=float(cpg),
-        yards_per_catch=ypc,
-        yards_per_carry=ypcarry,
+        yards_per_catch=shrink_skill_samples(
+            ypc, "yards_per_catch", position, total_tgt),
+        yards_per_carry=shrink_skill_samples(
+            ypcarry, "yards_per_carry", position, total_car),
         # dispersion is var/mean; below 1 the negative binomial is undefined, and
         # Poisson is the honest fallback rather than forcing overdispersion
         target_dispersion=max(float(t_disp), 1.0),

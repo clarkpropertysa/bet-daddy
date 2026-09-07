@@ -732,7 +732,8 @@ def run(
                         skip("teammate_availability_unresolved"); continue
 
             try:
-                pi = load_player_inputs(pbp_path, xr["gsis_id"])
+                pi = load_player_inputs(pbp_path, xr["gsis_id"],
+                                        position=xr.get("position"))
             except InsufficientHistory:
                 skip("insufficient_history"); continue
 
