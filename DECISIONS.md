@@ -2605,3 +2605,70 @@ per run — and stores the JSON. Nothing parses it. `cadence.py` records the cos
 this job uniquely captures", which is true and unused. Left in place rather than removed
 two days before launch: it is waste, not a correctness fault, and removing a capture is
 irreversible in a way that adding a consumer later is not.
+
+## Backtesting 2025: what could be tested, and what it said
+
+Asked for a backtest against last season. **D1 still holds**: Kalshi retains no settled
+prop markets from 2025, so there are no historical lines and no way to reconstruct what
+the model *would have bet*. What can be tested is the thing that decides whether any bet
+is profitable — an edge is `p_model - price`, and if the probabilities are wrong then
+every edge on the board is noise however good the price looks. Calibration needs no
+prices at all.
+
+`scripts/backtest_2025.py` replays weeks 8-18 leak-free (`through_week=N`, which filters
+`week < N`), scoring 33,029 predictions across five markets against a Kalshi-shaped
+strike ladder.
+
+### The first result was wrong, and the harness was at fault
+
+The first run scored only weeks in which a player had a real role (>= 3 targets), and
+reported the model badly UNDER-confident — actual over-rates 5 to 9 points above
+predicted in every bucket. That is selecting on the outcome: it keeps the games where a
+receiver saw eight targets and drops the ones where he saw none, while the projection
+averages over both.
+
+Scoring every week the player **took a snap** — knowable before kickoff, and the
+condition under which a market is listed — reverses the sign of the finding.
+
+### The model has real skill
+
+    Brier (lower is better)      model 0.1470
+                             box score 0.1854      +20.7%
+                              always 50% 0.2500
+                               base rate 0.2191
+
+    by market   pass_tds   +26.1%      rec_yds     +21.2%
+                pass_yds   +18.2%      receptions  +20.2%
+                rush_yds   +20.6%
+
+The baseline is the honest one: how often the player has already cleared that line, which
+the model's own rationale panel calls "already in the price". Beating a coin flip is not
+the bar; beating the box score is, and it does, consistently across every market.
+
+### It is over-confident at the high end, and that replicates
+
+Held out on weeks 14-18, fitted on nothing:
+
+    predicted 0.75  ->  actual 0.693      -0.056
+    predicted 0.85  ->  actual 0.785      -0.061
+    predicted 0.95  ->  actual 0.907      -0.041
+    predicted 0.04  ->  actual 0.049      +0.011
+
+A stated 75-85% is really 69-79%. The low end is if anything slightly UNDER-confident,
+which matters because it rules out the obvious fix: a symmetric temperature on the
+log-odds, fitted on weeks 8-13, made held-out Brier **worse** (0.1448 -> 0.1453). It
+repaired the top and broke the middle.
+
+A ONE-SIDED correction above 50% does survive: temperature 0.79, held-out Brier
+0.1448 -> 0.1442 overall and 0.1996 -> 0.1976 on the rows it touches (+1.02%, n=4,402).
+
+**Not applied.** The replay drives the simulator from WITHIN-SEASON inputs, while
+production anchors on the prior season with the shrinkage fitted above and layers
+adjustments on top. Those are different estimators, and a correction measured on one is
+not evidence about the other. The finding is recorded and the harness is committed so it
+can be re-run against the production configuration once 2026 provides the weeks.
+
+**What it means for the board today:** high-confidence picks are likely overstated by
+roughly five points. A row claiming 78% is nearer 73%, which turns a +26c edge into about
++21c — still positive, but a pick sitting just above the fee bar at high confidence may
+not really clear it.
