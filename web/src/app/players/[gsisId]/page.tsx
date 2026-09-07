@@ -12,6 +12,7 @@ import {
   getPlayerGameLog,
   getPlayerMarkets,
   getPlayerSplits,
+  getUnmeasuredSplits,
   type GameLogRow,
 } from "@/lib/queries";
 
@@ -52,9 +53,10 @@ export default async function PlayerPage({
   const player = await getPlayer(decodeURIComponent(gsisId));
   if (!player) notFound();
 
-  const [log, splits, markets] = await Promise.all([
+  const [log, splits, unmeasured, markets] = await Promise.all([
     getPlayerGameLog(player.gsisId),
     getPlayerSplits(player.gsisId),
+    getUnmeasuredSplits(player.gsisId),
     getPlayerMarkets(player.gsisId),
   ]);
 
@@ -146,7 +148,7 @@ export default async function PlayerPage({
         </div>
 
         <div className="space-y-4">
-          <SplitsPanel splits={splits} />
+          <SplitsPanel splits={splits} unmeasured={unmeasured} />
 
           {markets.length > 0 && season !== null && (
             <section className="rounded border border-line bg-card">

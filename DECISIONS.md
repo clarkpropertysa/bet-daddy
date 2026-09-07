@@ -2689,3 +2689,36 @@ beside it is the model's actual claim and is net of the exact taker fee.
 The two answer different questions, so the board asks both: *what does a dollar come back
 as*, and *is the price worth paying*. Replacing the second with the first would have left
 the board restating Kalshi's own screen.
+
+## "No separable effect" was being said when nothing had been measured
+
+Asked why Henderson's likely absence is not mentioned on Stevenson's card. It was not,
+and the reason was a conflation worth fixing.
+
+`PlayerSplit` holds the pair — `nWith = 14, nWithout = 0, suppressed = true`. Henderson
+never missed a game, so there was never anything to compare, and the row is correctly
+suppressed. `getPlayerSplits` filters on `significant and not suppressed`, so it never
+reached the UI, and the panel fell through to its empty state:
+
+> *"No current teammate's absence has a separable effect on this player's role."*
+
+That sentence means "we compared and found little". The truth was "we could not compare
+at all" — for the one teammate on this week's injury report, and the exact reason the
+model declines to price Stevenson.
+
+The panel now names them: *"Not measurable: TreVeyon Henderson (14 together, none
+apart)…"*, and says plainly that the absence of a comparison is not evidence of no
+effect, and that the model refuses rather than guesses.
+
+**Ranking by shared games was wrong and shipped once.** The first version listed Austin
+Hooper, Drake Maye, Hunter Henry and Jack Westover — a quarterback, two tight ends and a
+fullback, all tied at 14 games — and omitted Henderson entirely. Same-position teammates
+now sort first: a tight end sitting does not redistribute carries, and the whole point of
+the panel is the teammate whose absence would move this player's role.
+
+**Still missing, and it needs a decision.** The card cannot say Henderson is 34% likely to
+sit, because the injury report exists only in Parquet and is read by the pipeline; there
+is no injuries table in Postgres. The model knows the number — it is what triggers the
+refusal — and the UI has no way to reach it. Surfacing it, and surfacing WHY a player is
+absent from the board at all, needs a table, a sync job and a query. Recorded rather than
+built two days before launch.

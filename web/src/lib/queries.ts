@@ -679,6 +679,49 @@ export async function getPlayerGameLog(gsisId: string): Promise<GameLogRow[]> {
  * with everything else that changed that week, and saying so is more useful than
  * showing a number that cannot carry the weight.
  */
+export type UnmeasuredSplit = {
+  teammate: string;
+  nWith: number;
+  nWithout: number;
+};
+
+/**
+ * Teammates whose absence could NOT be measured, as opposed to measured and found
+ * small. The two are very different claims and the panel was reporting the second
+ * when the truth was the first.
+ *
+ * Rhamondre Stevenson against TreVeyon Henderson is the case that exposed it: 14 games
+ * together, ZERO apart, so the split is suppressed and the card fell through to "no
+ * teammate's absence has a separable effect". Henderson is on this week's injury report
+ * and is the whole reason the model declines to price Stevenson at all.
+ */
+export async function getUnmeasuredSplits(
+  gsisId: string,
+): Promise<UnmeasuredSplit[]> {
+  return prisma.$queryRaw<UnmeasuredSplit[]>`
+    select tm."fullName" as teammate,
+           max(sp."nWith")    as "nWith",
+           max(sp."nWithout") as "nWithout"
+    from "PlayerSplit" sp
+    join "Player" p on p.id = sp."playerId"
+    -- Same inner join as below: a teammate on no current roster cannot recur.
+    join "Player" tm on tm.id = sp."teammateId"
+    where p."gsisId" = ${gsisId}
+      -- Never apart often enough to compare. Not "compared and found nothing".
+      and sp."nWithout" < 4
+      -- And enough shared history that he is a real part of this player's context.
+      and sp."nWith" >= 8
+    group by tm."fullName", tm.position, p.position
+    -- SAME POSITION FIRST. Shared-game count is a bad ranking here: for Stevenson,
+    -- his quarterback, both tight ends and a fullback all tie at 14 games, and sorting
+    -- on that buried TreVeyon Henderson -- the one back whose absence would actually
+    -- move his carries, and the reason he is off the board this week.
+    order by (tm.position is not distinct from p.position) desc,
+             max(sp."nWith") desc
+    limit 4
+  `;
+}
+
 export async function getPlayerSplits(gsisId: string): Promise<SplitRow[]> {
   return prisma.$queryRaw<SplitRow[]>`
     select tm."fullName" as teammate,

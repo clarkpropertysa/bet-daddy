@@ -1,5 +1,5 @@
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import type { SplitRow } from "@/lib/queries";
+import type { SplitRow, UnmeasuredSplit } from "@/lib/queries";
 
 const METRIC_LABEL: Record<string, string> = {
   target_share: "target share",
@@ -15,7 +15,14 @@ const METRIC_LABEL: Record<string, string> = {
  * pairs about 84 qualify, and the empty state says so rather than leaving a gap --
  * "no separable effect" is a finding, not a missing feature.
  */
-export function SplitsPanel({ splits }: { splits: SplitRow[] }) {
+export function SplitsPanel({
+  splits,
+  unmeasured = [],
+}: {
+  splits: SplitRow[];
+  /** Teammates who have barely missed a game, so no split could be computed at all. */
+  unmeasured?: UnmeasuredSplit[];
+}) {
   return (
     <section className="rounded border border-line bg-card">
       <div className="border-b border-line px-4 py-3">
@@ -61,6 +68,32 @@ export function SplitsPanel({ splits }: { splits: SplitRow[] }) {
             );
           })}
         </ul>
+      )}
+
+      {/* MEASURED-AND-SMALL IS NOT THE SAME CLAIM AS NEVER-MEASURED, and the panel
+          used to make the first when the truth was the second. Stevenson and Henderson
+          played 14 games together and none apart, so no split exists -- and Henderson
+          is exactly the teammate whose absence matters this week. */}
+      {unmeasured.length > 0 && (
+        <div className="border-t border-line-2 px-4 py-3">
+          <p className="text-[11.5px] leading-relaxed text-ink-2">
+            <span className="font-medium text-ink">Not measurable:</span>{" "}
+            {unmeasured.map((u, i) => (
+              <span key={u.teammate}>
+                {i > 0 ? ", " : ""}
+                <span className="font-medium">{u.teammate}</span>{" "}
+                <span className="text-ink-3">
+                  ({u.nWith} together, {u.nWithout === 0 ? "none" : u.nWithout} apart)
+                </span>
+              </span>
+            ))}
+            . They have hardly missed a game alongside him, so there is nothing to
+            compare — which is not the same as having compared and found no effect. If
+            one of them is ruled out, this player&apos;s role would move by an amount
+            this model cannot yet put a number on, and it declines to price him rather
+            than guess.
+          </p>
+        </div>
       )}
     </section>
   );
