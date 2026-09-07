@@ -51,10 +51,12 @@ function reprice(r: BoardRow, book: LiveQuoteBook): BoardRow {
 
 /** Book width from the snapshot, for rows with no live quote. */
 function storedSpreadCents(r: BoardRow): number | null {
+  // Measured on the YES quotes whichever side is recommended: a binary book has one
+  // width, and no_ask - no_bid equals yes_ask - yes_bid. Reconstructing the yes ask
+  // from a "no" price gave exactly zero every time, which passed the gate silently.
+  if (r.yesAsk === null || r.yesAsk === undefined) return null;
   if (r.yesBid === null || r.yesBid === undefined) return null;
-  // The yes book is the one we archive both sides of; its width is the book's width.
-  const ask = r.side === "no" ? 1 - r.marketProb : r.marketProb;
-  return Math.round((ask - r.yesBid) * 1000) / 10;
+  return Math.round((r.yesAsk - r.yesBid) * 1000) / 10;
 }
 
 export type BoardRow = {
@@ -96,7 +98,10 @@ export type BoardRow = {
   projMedian: number | null;
   /** "live" when the ask came from the market just now, "stored" when it did not. */
   priceSource: "live" | "stored";
-  /** Best bid on the yes side, from the snapshot. */
+  /** Both yes quotes from the snapshot. The book has ONE width -- yes_ask minus
+   *  yes_bid -- and deriving the missing one from the taken side's price returns zero
+   *  on every "no" pick, because 1 - no_ask is yes_bid on any well-formed book. */
+  yesAsk: number | null;
   yesBid: number | null;
   /** Width of the book in cents. A prediction market needs a counterparty: an ask with
    *  no bid near it is one participant's resting offer, not a price the market has
@@ -183,6 +188,7 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       l."closeTime"       as "closeTime",
       l."priceAsOf"       as "priceAsOf",
       pr."pOverByStrike"  as "pOverByStrike",
+      l."yesAsk"::float8  as "yesAsk",
       l."yesBid"::float8  as "yesBid",
       l.volume::float8    as volume,
       l."openInterest"::float8 as "openInterest",
@@ -832,6 +838,7 @@ export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
       l."kellyFraction"::float8 as kelly, l.tier::text as tier, l."sampleN" as "sampleN",
       l."runTs" as "runTs", l."closeTime" as "closeTime", l."priceAsOf" as "priceAsOf",
       pr."pOverByStrike" as "pOverByStrike",
+      l."yesAsk"::float8  as "yesAsk",
       l."yesBid"::float8  as "yesBid",
       l.volume::float8    as volume,
       l."openInterest"::float8 as "openInterest",

@@ -1102,8 +1102,9 @@ def run(
                        "marketProb", "feeCents", "edgeCentsNet", "kellyFraction",
                        tier, "sampleN", reason, "modelVersion", "featureAsOf",
                        "closeTime", "priceAsOf", strike, kickoff,
-                       "yesBid", volume, "openInterest", source, "ingestedAt")
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       "yesAsk", "yesBid", volume, "openInterest", source,
+                       "ingestedAt")
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (str(uuid.uuid4()), proj_id, m["market_ticker"], now,
                      edge.side,
@@ -1128,7 +1129,8 @@ def run(
                      # Liquidity. Captured on every snapshot since the archiver was
                      # written and never read: the board could not tell a market from
                      # a single resting offer.
-                     m.get("yes_bid"), m.get("volume"), m.get("open_interest"),
+                     m.get("yes_ask"), m.get("yes_bid"), m.get("volume"),
+                     m.get("open_interest"),
                      "model", now),
                 )
                 n_sig += 1

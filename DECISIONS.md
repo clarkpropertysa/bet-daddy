@@ -2798,3 +2798,28 @@ that much quoting care does not belong in a shell step — and `--week` is now o
 `python -m pipeline.x` it invokes points at a module that exists. The second half is
 worth as much as the first: a scheduled job calling a module that was renamed fails at
 runtime, weekly, where nobody is looking.
+
+## The spread gate was not filtering a single under
+
+Spotted on the live site: the top two picks read `0 traded · 0c spread`, and a
+zero-wide book is not a thing.
+
+`storedSpreadCents` reconstructed the missing yes quote from the price of the side
+taken. On Kalshi `no_ask = 1 - yes_bid`, so for a "no" pick `1 - marketProb` **is**
+`yes_bid`, and the subtraction returned exactly zero every time. Zero passes any
+threshold, so the gate shipped filtering nothing on the under side — which is most of
+the board.
+
+    stored   side=no  no_ask=0.42  yesBid=0.58   ->  computed 0.0c
+    live     yes 0.58/0.69  no 0.31/0.42         ->  true width 11.0c
+
+A binary book has ONE width: `yes_ask - yes_bid` equals `no_ask - no_bid`. Measuring it
+needs both yes quotes, so `Signal.yesAsk` is now stored alongside `yesBid` and the width
+is computed from those regardless of the recommended side. The live path was already
+correct — it reads both quotes from the book — so only stored-fallback rows were wrong,
+which is why this survived the local check and appeared in production.
+
+`check:edge` now pins the arithmetic, including the collapse-to-zero that caused it.
+
+Effect: of 509 rows clearing the fee bar, 395 pass the width gate and **114 are held
+back** that previously were not.

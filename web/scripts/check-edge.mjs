@@ -94,6 +94,19 @@ console.log("the no side is priced by the exchange, never by the complement");
   check("yes side keeps its edge", cheap.edgeCentsNet > 30, true);
 }
 
+console.log("book width is measured on the yes quotes, whichever side is taken");
+// Kalshi: no_ask = 1 - yes_bid and no_bid = 1 - yes_ask, so the two sides report the
+// SAME width. Reconstructing the yes ask from a "no" price therefore gives exactly
+// zero -- which is what let every under pick through the spread gate.
+{
+  const yesBid = 0.58, yesAsk = 0.69;
+  const noAsk = 1 - yesBid;              // 0.42, the price an under is bought at
+  check("yes-side width", Math.round((yesAsk - yesBid) * 100), 11);
+  check("no-side width is the same", Math.round(((1 - yesBid) - (1 - yesAsk)) * 100), 11);
+  check("reconstructing from the no price collapses to zero",
+        Math.round(((1 - noAsk) - yesBid) * 100), 0);
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

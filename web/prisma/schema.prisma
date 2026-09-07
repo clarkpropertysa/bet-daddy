@@ -259,6 +259,14 @@ model Signal {
   /// Timestamp of the snapshot this price came from, so the UI can show how old the
   /// quote is rather than implying it is current.
   priceAsOf     DateTime?
+  /// The yes-side ASK, stored even when the recommended side is "no".
+  ///
+  /// The book has ONE width -- yes_ask - yes_bid, which equals no_ask - no_bid -- and
+  /// measuring it needs both yes quotes. Deriving the missing one from `marketProb`
+  /// fails silently on the no side: `1 - no_ask` IS `yes_bid` on any well-formed book,
+  /// so the width came out as exactly zero and every under pick sailed through the
+  /// spread gate.
+  yesAsk        Decimal? @db.Decimal(6, 4)
   /// The best BID on the yes side, so the board can measure how wide the book is.
   /// A prediction market needs a counterparty: an ask with no bid behind it is one
   /// participant's resting offer, not a price the market has agreed on.
