@@ -2312,3 +2312,66 @@ read.
 
 Per-snap rates scaled by an expected role -- the real fix -- are deferred until after
 Week 1 rather than rebuilt under time pressure.
+
+## P(inactive) could never have fired, and the reason was in the wiring
+
+`with_p_inactive` read 0 on every run since the layer was written, and the warning
+blamed the data: "either no injury report is published yet, or the availability table
+failed to build". Neither. The rate table was being built from the season being
+PROJECTED:
+
+    build_inactivity_table(injuries_2026, snap_counts_2026, players, season=2026)
+
+That pairing is structurally empty in week 1 and always will be. The table measures how
+often a given designation preceded zero snaps, which needs designations paired with
+outcomes — and in week 1 no snap has been taken. The comment above the call asserted the
+opposite ("P(inactive) must be measured on the season being projected") and the guard in
+`features/availability.py` then correctly refused to build anything, so the layer stayed
+dark while every diagnostic pointed at nflverse.
+
+The halves are now separated explicitly, which is what the module always intended:
+
+    rates   <- injuries_2025 + snap_counts_2025, season 2025   (what happened)
+    status  <- injuries_2026, this week                        (who is listed now)
+
+`with_p_inactive` went from 0 to **1857 of 1857**. The mismatch guard is untouched, so a
+wrong `--rates-season` still yields no table rather than a table of 1.000s.
+
+## A share that may be about to move cannot be priced
+
+Reported from the board: Rhamondre Stevenson's picks looked wrong because TreVeyon
+Henderson is expected to miss Week 1. Correct, and the model had no way to see it.
+
+    Stevenson  14 games   9.4 carries/game   43.2 rushing yards/game
+    Henderson  17 games  10.6 carries/game   53.6 rushing yards/game
+
+Stevenson's 39.4-yard projection is his COMMITTEE rate. The model took UNDER 49.5 at
++25.8c — its largest edge on him — against a back who inherits a ten-carry role if
+Henderson sits. Henderson did not practise (ankle); the measured `(none)/DNP` cell puts
+that at **34.3%**.
+
+Three mechanisms should have caught it and all three were inert:
+
+  * `starters.injured_out` selects `report_status in ('Out','Doubtful')`. A Wednesday
+    practice report carries no game designation — every `report_status` in the Week 1
+    file is null — so `absent_teammates` received an empty set.
+  * `splits.build_with_without` needs prior-season games where Henderson sat and
+    Stevenson played. Henderson played all seventeen. The sample is empty and the
+    adjustment is suppressed by its own significance gate, correctly.
+  * `p_inactive` lowers a player for his OWN injury and never moves a teammate's share.
+
+None of that is fixable by Sunday. The projection is genuinely a conditional — one
+number if Henderson plays, another if he does not — and the simulator returns a single
+mean, which is the one outcome that cannot occur. So `features/room.py` refuses: when a
+same-position teammate holding at least half this player's prior snap share carries an
+absence probability above 0.25, and no with/without history exists to price the shift,
+no signal is written.
+
+23 of 1,918 projections refused. The threshold sits between the two measured cells it has
+to separate — `(none)/full participation` at 0.119, which is ordinary, and `(none)/did
+not participate` at 0.343, which is not.
+
+This is the third refusal guard in this codebase and the pattern is now explicit: where
+the model cannot express a thing, it declines rather than averaging over it. The proper
+fix — projecting both branches and weighting by absence probability — waits with the
+per-snap rebuild until after Week 1.

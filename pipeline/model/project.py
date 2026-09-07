@@ -30,6 +30,11 @@ from pipeline.backtest.point_in_time import (
 )
 from pipeline.features.availability import build_inactivity_table, status_lookup
 from pipeline.features.wind import describe as describe_wind, wind_effect
+from pipeline.features.room import (
+    build_rooms,
+    describe as room_describe,
+    unpriced_teammate,
+)
 from pipeline.features.role import (
     describe as role_describe,
     is_unsampled,
@@ -366,6 +371,8 @@ def run(
     refresh: bool = False,
     current_pbp_path: str | None = None,
     current_snaps_path: str | None = None,
+    rates_injuries_path: str | None = None,
+    rates_season: int = 2025,
 ) -> dict:
     if mode not in ("live", "settled"):
         raise ValueError(f"mode must be 'live' or 'settled', got {mode!r}")
@@ -467,23 +474,46 @@ def run(
     # every prop has been priced as though the player is certain to play -- no left
     # tail at all, on the single largest risk a yardage line carries.
     inactivity = None
-    # CURRENT-season snaps, not the prior season's. The two consumers of snap counts
-    # want different files: the with/without splits are built from history, while
-    # P(inactive) must be measured on the season being projected. Pairing a 2026
-    # injury report with 2025 snaps makes every cell resolve to 1.000 -- see the guard
-    # in features/availability.py -- so this is now explicit rather than inherited.
+    # THE RATE TABLE IS MEASURED ON A COMPLETED SEASON, and applied to this week's
+    # report. It cannot be measured on the season being projected: the table needs
+    # injury designations paired with whether the player then took a snap, and in
+    # week 1 no snap has been taken. Pairing the 2026 report with 2026 snaps was
+    # structurally empty, which is why `with_p_inactive` read 0 on every run since
+    # the layer was written -- the warning was firing correctly and the cause was
+    # here, not in the data.
+    #
+    # The two halves stay strictly separate:
+    #   rates   <- injuries_2025 + snap_counts_2025, season 2025   (what happened)
+    #   status  <- injuries_2026, this week                        (who is listed now)
+    # `availability.build_inactivity_table` still refuses a mismatched pair, so a
+    # wrong season here yields no table rather than a table of 1.000s.
     # Prior-season snap share, for the role-change guard. Empty when snap counts are
     # absent, which disables the check rather than refusing everything.
     prior_snaps = (prior_snap_share(snaps_path, players_path)
                    if snaps_path and players_path else {})
     n_role_refused = 0
     role_examples: dict[str, str] = {}
+    # Who else is in each positional room, so a teammate whose availability is
+    # unresolved can be seen at all. resolve_starters keeps only the top of a slot,
+    # which is the wrong shape for this question.
+    rooms = build_rooms(depth_path) if depth_path else {}
+    # gsis_id -> name, so a refusal can say WHO is hurt rather than printing an id.
+    roster_names: dict[str, str] = {}
+    if players_path:
+        try:
+            roster_names = dict(duckdb.connect().execute(f"""
+                select gsis_id, display_name from read_parquet('{players_path}')
+                where gsis_id is not null and display_name is not null
+            """).fetchall())
+        except Exception:
+            roster_names = {}
+    n_room_refused = 0
+    room_examples: dict[str, str] = {}
 
-    _inactivity_snaps = current_snaps_path or snaps_path
-    if injuries_path and _inactivity_snaps and players_path:
+    if rates_injuries_path and snaps_path and players_path:
         try:
             inactivity = build_inactivity_table(
-                injuries_path, _inactivity_snaps, players_path, season)
+                rates_injuries_path, snaps_path, players_path, rates_season)
         except Exception:
             inactivity = None
 
@@ -680,6 +710,26 @@ def run(
                             _ratio, st.position, st.depth_rank,
                             prior_snaps[xr["gsis_id"]])
                     skip("role_not_sampled_last_season"); continue
+
+                # A teammate who may not play makes this a conditional the simulator
+                # cannot express: one number if he plays, another if he does not, and
+                # the mean of the two is the one outcome that never happens.
+                if rooms and inactivity is not None and not inactivity.is_empty:
+                    _wk_status = status_for(game_week)
+
+                    def _p_out(mate: str) -> float:
+                        return inactivity.for_player(_wk_status.get(mate))
+
+                    _mate = unpriced_teammate(
+                        xr["gsis_id"], st.team, st.position, rooms,
+                        _p_out, prior_snaps, roster_names)
+                    if _mate:
+                        n_room_refused += 1
+                        _who = xr.get("full_name") or xr["gsis_id"]
+                        if _who not in room_examples:
+                            room_examples[_who] = room_describe(
+                                st.position, _mate[0], _mate[1])
+                        skip("teammate_availability_unresolved"); continue
 
             try:
                 pi = load_player_inputs(pbp_path, xr["gsis_id"])
@@ -1026,6 +1076,8 @@ def run(
             "with_spread": n_spread,
             "outdoor_games": n_outdoor, "with_wind": n_wind,
             "role_refused": n_role_refused,
+            "room_refused": n_room_refused,
+            "room_examples": [f"{k}: {v}" for k, v in room_examples.items()],
             "role_examples": [f"{k}: {v}" for k, v in role_examples.items()],
             "wind_venues_tried": _wx_stats["attempted"],
             "wind_venues_failed": _wx_stats["failed"],
@@ -1050,9 +1102,14 @@ def main():
                     help="PRIOR season: the history the with/without splits are built from")
     ap.add_argument("--current-snaps",
                     default="data/raw/nflverse/snap_counts_2026.parquet",
-                    help="CURRENT season: what P(inactive) is measured against. A "
-                         "prior-season file here silently makes every injured player "
-                         "look certain to sit.")
+                    help="CURRENT season: used for the team-volume blend once games "
+                         "have been played.")
+    ap.add_argument("--rates-injuries",
+                    default="data/raw/nflverse/injuries_2025.parquet",
+                    help="COMPLETED season. P(inactive) rates are measured here and "
+                         "applied to --injuries; they cannot be measured on the season "
+                         "being projected because its outcomes have not happened.")
+    ap.add_argument("--rates-season", type=int, default=2025)
     ap.add_argument("--season", type=int, default=2026)
     ap.add_argument("--allow-backups", action="store_true",
                     help="off by default: a backup's prior usage describes a role he "
@@ -1091,6 +1148,9 @@ def main():
             allow_backups=a.allow_backups,
             current_pbp_path=(a.current_pbp if Path(a.current_pbp).exists() else None),
             current_snaps_path=(a.current_snaps if Path(a.current_snaps).exists() else None),
+            rates_injuries_path=(a.rates_injuries
+                                 if Path(a.rates_injuries).exists() else None),
+            rates_season=a.rates_season,
             mode=a.mode,
             max_price_age_mins=a.max_price_age,
             refresh=a.refresh,
@@ -1119,6 +1179,14 @@ def main():
         elif census["quoted"] and not census["fresh"]:
             print("  WARNING: every quote is older than the freshness limit. The "
                   "archiver has probably stopped -- check the archive-markets job.")
+    if r.get("room_refused"):
+        print(f"  {r['room_refused']} projections refused: a teammate in the same room "
+              "may not play, and no with/without history exists to price the share "
+              "that would move. The projection is a conditional; the simulator "
+              "returns one number.")
+        for ex in r.get("room_examples", [])[:6]:
+            print(f"    - {ex}")
+
     if r.get("role_refused"):
         print(f"  {r['role_refused']} projections refused: last season was a "
               "different role, so the player's own per-game rate is not a sample of "
