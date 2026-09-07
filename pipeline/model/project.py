@@ -308,6 +308,14 @@ def _venue_index(schedule_path: str, season: int) -> dict[str, tuple]:
     NOT outdoor: guessing "open" would apply a wind adjustment to an indoor game.
     """
     from datetime import datetime as _dt, timezone as _tz
+    from zoneinfo import ZoneInfo
+
+    # nflverse `gametime` is EASTERN, not UTC. Stamping it UTC put every kickoff four
+    # hours early in September, which aged picks off the board before the game started
+    # and pulled each weather forecast for the wrong hour. The tell was the gap to
+    # Kalshi's close time: a settlement window of "2 days 4 hours" is not a window
+    # anyone designed, and it is exactly 2 days once the zone is right.
+    _ET = ZoneInfo("America/New_York")
     try:
         rows = duckdb.connect().execute(f"""
             select cast(gameday as varchar), home_team, away_team,
@@ -320,7 +328,8 @@ def _venue_index(schedule_path: str, season: int) -> dict[str, tuple]:
     out: dict[str, tuple] = {}
     for day, home, away, sid, roof, gametime in rows:
         try:
-            ko = _dt.fromisoformat(f"{day}T{gametime or '17:00'}:00").replace(tzinfo=_tz.utc)
+            ko = (_dt.fromisoformat(f"{day}T{gametime or '13:00'}:00")
+                  .replace(tzinfo=_ET).astimezone(_tz.utc))
         except ValueError:
             ko = None
         for team in (home, away):
@@ -508,6 +517,8 @@ def run(
         except Exception:
             roster_names = {}
     n_room_refused = 0
+    # A signal with no kickoff cannot be aged off the board, so this must stay zero.
+    n_no_kickoff = 0
     room_examples: dict[str, str] = {}
 
     if rates_injuries_path and snaps_path and players_path:
@@ -749,6 +760,12 @@ def run(
             # favourite or a ten-point dog -- while the comment below claimed
             # otherwise.
             team_spread = spread_of.get((game_date, team_code)) if game_date else None
+            # (stadium, roof, kickoff) for this fixture; the kickoff is the only part
+            # the board can trust for "has this game started".
+            _venue = venue_of.get(f"{game_date}|{team_code}") if game_date else None
+            kickoff_at = _venue[2] if _venue else None
+            if kickoff_at is None:
+                n_no_kickoff += 1
             # The price we are modelling against must predate kickoff. In live mode
             # the close-time filter makes this near-impossible; in settled mode it is
             # the whole integrity question, because a snapshot taken after kickoff
@@ -1047,8 +1064,8 @@ def run(
                       (id, "projectionId", "marketTicker", "runTs", side, "modelProb",
                        "marketProb", "feeCents", "edgeCentsNet", "kellyFraction",
                        tier, "sampleN", reason, "modelVersion", "featureAsOf",
-                       "closeTime", "priceAsOf", strike, source, "ingestedAt")
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
+                       "closeTime", "priceAsOf", strike, kickoff, source, "ingestedAt")
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (str(uuid.uuid4()), proj_id, m["market_ticker"], now,
                      edge.side,
@@ -1064,6 +1081,12 @@ def run(
                      # and reprices against it; parsing the suffix was wrong by 0.5 on
                      # every count market.
                      strike,
+                     # ACTUAL kickoff, not m["close_time"]. Kalshi's close time is a
+                     # settlement deadline about two days after the game: NE at SEA
+                     # kicks off 2026-09-10T00:20Z and closes 2026-09-12T00:20Z. The
+                     # board filtered on close time and therefore kept serving picks
+                     # through the game and for two days after it.
+                     kickoff_at,
                      "model", now),
                 )
                 n_sig += 1
@@ -1078,6 +1101,7 @@ def run(
             "outdoor_games": n_outdoor, "with_wind": n_wind,
             "role_refused": n_role_refused,
             "room_refused": n_room_refused,
+            "no_kickoff": n_no_kickoff,
             "room_examples": [f"{k}: {v}" for k, v in room_examples.items()],
             "role_examples": [f"{k}: {v}" for k, v in role_examples.items()],
             "wind_venues_tried": _wx_stats["attempted"],
@@ -1180,6 +1204,11 @@ def main():
         elif census["quoted"] and not census["fresh"]:
             print("  WARNING: every quote is older than the freshness limit. The "
                   "archiver has probably stopped -- check the archive-markets job.")
+    if r.get("no_kickoff"):
+        print(f"  WARNING: {r['no_kickoff']} signals carry no kickoff time. The board "
+              "ages picks off at kickoff, so these will be dropped rather than served "
+              "-- check that --schedule resolves.")
+
     if r.get("room_refused"):
         print(f"  {r['room_refused']} projections refused: a teammate in the same room "
               "may not play, and no with/without history exists to price the share "

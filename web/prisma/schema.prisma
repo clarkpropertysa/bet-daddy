@@ -257,6 +257,13 @@ model Signal {
   /// Timestamp of the snapshot this price came from, so the UI can show how old the
   /// quote is rather than implying it is current.
   priceAsOf     DateTime?
+  /// ACTUAL KICKOFF, from the nflverse schedule.
+  ///
+  /// Not `closeTime`, which is Kalshi's settlement deadline and lands roughly two days
+  /// LATER: New England at Seattle kicks off 2026-09-10T00:20Z and the market's close
+  /// time is 2026-09-12T00:20Z. Filtering the board on close time therefore served
+  /// picks for two days after the game was played, through the game itself.
+  kickoff       DateTime?
   /// The market's REAL strike -- Kalshi's `floor_strike`, not the ticker suffix. They
   /// differ by 0.5 on every count market: "8+ receptions" is ticker `...-8` and
   /// settles on MORE THAN 7.5. The board used to parse the suffix, which both
@@ -269,6 +276,7 @@ model Signal {
   @@index([marketTicker, runTs])
   @@index([tier, runTs])
   @@index([closeTime])
+  @@index([kickoff])
 }
 
 model SignalResult {

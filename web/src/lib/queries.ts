@@ -95,11 +95,18 @@ export type BoardStatus = {
 /**
  * Latest signal per market for markets that have NOT closed yet.
  *
- * The close-time filter is the whole point. Without it the board serves the most
- * recent run per ticker forever, which means a game that finished last month sits at
- * the top of the board looking like a live recommendation. A null closeTime fails the
- * comparison and drops out, which is the correct treatment for rows written before
- * the live board existed -- they were all settled backtest signals.
+ * The KICKOFF filter is the whole point. Without it the board serves the most recent
+ * run per ticker forever, which means a game that finished last month sits at the top
+ * of the board looking like a live recommendation.
+ *
+ * It filters on kickoff and NOT on `closeTime`, which is Kalshi's settlement deadline
+ * and falls roughly two days later -- New England at Seattle kicks off 2026-09-10T00:20Z
+ * against a close time of 2026-09-12T00:20Z. Filtering on close time served every Week 1
+ * pick through its own game and for two days afterwards.
+ *
+ * A null kickoff fails the comparison and drops out, which is the correct treatment for
+ * rows written before the column existed and for any fixture the schedule could not
+ * resolve: a pick that cannot be aged off the board must not go on it.
  */
 export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]> {
   const rows = await prisma.$queryRaw<BoardRow[]>`
@@ -113,12 +120,12 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       -- fresh market every hour, so absence from the latest run is a decision.
       select max(s."runTs") as ts
       from "Signal" s
-      where s."closeTime" > now()
+      where s."kickoff" > now()
     ),
     latest as (
       select distinct on (s."marketTicker") s.*
       from "Signal" s, newest_run n
-      where s."closeTime" > now() and s."runTs" = n.ts
+      where s."kickoff" > now() and s."runTs" = n.ts
       order by s."marketTicker", s."runTs" desc
     )
     select
@@ -370,12 +377,12 @@ export async function getParlayLegs(limit = 300) {
     with newest_run as (
       -- See getBoard: newest-row-per-ticker keeps serving a market the latest run
       -- deliberately declined to price.
-      select max(s."runTs") as ts from "Signal" s where s."closeTime" > now()
+      select max(s."runTs") as ts from "Signal" s where s."kickoff" > now()
     ),
     latest as (
       select distinct on (s."marketTicker") s.*
       from "Signal" s, newest_run n
-      where s."closeTime" > now() and s."runTs" = n.ts
+      where s."kickoff" > now() and s."runTs" = n.ts
       order by s."marketTicker", s."runTs" desc
     )
     select
@@ -447,7 +454,7 @@ export async function getNextSlate(): Promise<SlateGame[]> {
       select p."gameId" as event, count(distinct s."marketTicker")::int as n
       from "Signal" s
       join "Projection" p on p.id = s."projectionId"
-      where s."closeTime" > now()
+      where s."kickoff" > now()
       group by 1
     `,
   ]);
@@ -514,12 +521,12 @@ export async function getTopEdges(limit = 6) {
     with newest_run as (
       -- See getBoard: newest-row-per-ticker keeps serving a market the latest run
       -- deliberately declined to price.
-      select max(s."runTs") as ts from "Signal" s where s."closeTime" > now()
+      select max(s."runTs") as ts from "Signal" s where s."kickoff" > now()
     ),
     latest as (
       select distinct on (s."marketTicker") s.*
       from "Signal" s, newest_run n
-      where s."closeTime" > now() and s."runTs" = n.ts
+      where s."kickoff" > now() and s."runTs" = n.ts
       order by s."marketTicker", s."runTs" desc
     ),
     best as (
@@ -673,7 +680,7 @@ export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
     with newest_run as (
       -- See getBoard: newest-row-per-ticker keeps serving a market the latest run
       -- deliberately declined to price.
-      select max(s."runTs") as ts from "Signal" s where s."closeTime" > now()
+      select max(s."runTs") as ts from "Signal" s where s."kickoff" > now()
     ),
     latest as (
       select distinct on (s."marketTicker") s.*
@@ -681,7 +688,7 @@ export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
       join "Projection" pr on pr.id = s."projectionId"
       join "Player" p on p.id = pr."playerId"
       cross join newest_run n
-      where s."closeTime" > now() and s."runTs" = n.ts and p."gsisId" = ${gsisId}
+      where s."kickoff" > now() and s."runTs" = n.ts and p."gsisId" = ${gsisId}
       order by s."marketTicker", s."runTs" desc
     )
     select

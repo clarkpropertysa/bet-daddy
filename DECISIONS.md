@@ -2472,3 +2472,47 @@ is unchanged, and a test pins that.
 
 Positions with no fitted pool — a receiving fullback, a wideout taking handoffs — pass
 through raw. Borrowing another position's pool would be worse than not shrinking.
+
+## The board would have served every Week 1 pick through its own game
+
+Reported alongside a doubt about ATL/PIT props. Those markets are real — 118 of them,
+`active`, two-sided quotes, verified against the live exchange — and a full audit of all
+392 board rows against Kalshi found **zero** not listed and **zero** whose recommended
+side was untradeable. But checking it surfaced something worse.
+
+`Signal.closeTime` is Kalshi's **settlement** deadline, not kickoff:
+
+    NE at SEA   kickoff       2026-09-10T00:20Z
+                close_time    2026-09-12T00:20Z      <- two days later
+
+Every board query filtered `closeTime > now()`. A Wednesday-night game would have stayed
+on the board, priced and recommended, until Saturday — through the game itself and for
+two days after. Nine queries, all of them.
+
+The board now filters on a new `Signal.kickoff`, taken from the nflverse schedule. A null
+kickoff drops out rather than being served: a pick that cannot be aged off the board must
+not go on it, and the run warns loudly if any signal lacks one.
+
+### And the kickoff itself was four hours early
+
+nflverse `gametime` is EASTERN. `_venue_index` parsed it and stamped UTC, so every
+kickoff in the system was four hours early — aging picks off before the game started and
+pulling each weather forecast for the wrong hour.
+
+The tell was the gap to Kalshi's close time: **2 days and 4 hours**. No exchange designs
+a settlement window like that. Converted through `America/New_York` it is exactly two
+days, and the confirmation is that the gap is now a SINGLE distinct value across all
+1,834 signals — Kalshi uses kickoff + 48h uniformly, and our number now agrees with
+theirs on every market on the slate.
+
+A naive datetime compared against `now()` in Postgres is a silent four-hour error, so
+`tests/test_kickoff.py` pins the zone, the awareness, and the plausible-hours range
+rather than any single fixture.
+
+### Still open, and it is not a bug
+
+26% of board rows sit on markets that have never traded, and 32% on books wider than 15c.
+Aaron Rodgers 325+ passing yards is quoted 0.05/0.09 on zero volume. Those prices are
+real and takeable, so nothing here is fabricated — but an edge measured against an
+untested quote is weaker evidence than one against a liquid book, and the board presents
+them identically. The treatment is a product decision and is recorded, not chosen.
