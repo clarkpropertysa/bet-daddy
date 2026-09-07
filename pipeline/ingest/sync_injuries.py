@@ -24,6 +24,25 @@ from pipeline.features.availability import build_inactivity_table, status_lookup
 SOURCE = "nflverse:/injuries"
 
 
+def current_week(schedule_path: str, season: int) -> int:
+    """The week now being played, or the next one.
+
+    Derived here rather than in the workflow. It lived in a shell block with a nested
+    Python heredoc, which broke the YAML outright -- the job did not fail, it failed to
+    parse, and GitHub reported "a workflow file issue" with no log to read. Logic that
+    needs quoting this careful does not belong in a `run:` step.
+    """
+    try:
+        row = duckdb.connect().execute(f"""
+            select min(week) from read_parquet('{schedule_path}')
+            where season = {int(season)}
+              and cast(gameday as date) >= current_date - 1
+        """).fetchone()
+    except Exception:
+        return 1
+    return int(row[0]) if row and row[0] is not None else 1
+
+
 def collect(
     injuries_path: str,
     rates_injuries_path: str,
@@ -107,8 +126,14 @@ def main():
     ap.add_argument("--players", default="data/raw/nflverse/players.parquet")
     ap.add_argument("--season", type=int, default=2026)
     ap.add_argument("--rates-season", type=int, default=2025)
-    ap.add_argument("--week", type=int, required=True)
+    ap.add_argument("--schedule", default="data/raw/nflverse/schedules.parquet")
+    ap.add_argument("--week", type=int, default=None,
+                    help="omit to derive the current week from the schedule")
     a = ap.parse_args()
+
+    if a.week is None:
+        a.week = current_week(a.schedule, a.season)
+        print(f"week derived from the schedule: {a.week}")
 
     with db.track("sync_injuries") as run:
         rows = collect(a.injuries, a.rates_injuries, a.snaps, a.players,

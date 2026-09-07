@@ -2779,3 +2779,22 @@ market so the control is not just an unlabelled row to a screen reader.
 
 Moving the markup left eight dead imports behind on the page; lint caught them and they
 are gone.
+
+## A workflow that fails to parse leaves no log
+
+Two pushes reported `ingest-nflverse` failing with "this run likely failed because of a
+workflow file issue" and **no log at all** — the run never started. The cause was the
+week derivation for the injury sync: a nested Python heredoc inside a `run:` block, whose
+quoting broke the YAML.
+
+Nothing caught it. `checks` passed both times, because it runs the test suite and the
+test suite had no opinion about the workflow files. The failure was visible only as a red
+mark on a job whose output could not be read.
+
+The derivation moved into `sync_injuries.current_week`, where it belongs — logic needing
+that much quoting care does not belong in a shell step — and `--week` is now optional.
+
+`tests/test_workflows.py` asserts every workflow parses and that every
+`python -m pipeline.x` it invokes points at a module that exists. The second half is
+worth as much as the first: a scheduled job calling a module that was renamed fails at
+runtime, weekly, where nobody is looking.
