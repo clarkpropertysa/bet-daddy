@@ -21,7 +21,9 @@ function reprice(r: BoardRow, book: LiveQuoteBook): BoardRow {
   // No quote, or no stored probability at this exact strike: keep what was stored and
   // say so. Interpolating a probability would be inventing the number the edge is
   // built from.
-  if (!q || q.yesAsk === null || pOver === null) return { ...r, priceSource: "stored" };
+  if (!q || q.yesAsk === null || pOver === null) {
+    return { ...r, priceSource: "stored", spreadCents: storedSpreadCents(r) };
+  }
 
   // The real no-side ask, never the complement of the yes ask. `computeEdge` will
   // infer one when this is null, and on a wide book that inference returns the no BID
@@ -38,7 +40,21 @@ function reprice(r: BoardRow, book: LiveQuoteBook): BoardRow {
     implausible: Math.abs(e.modelProb - e.marketProb) > IMPLAUSIBLE_DIVERGENCE,
     priceAsOf: q.fetchedAt,
     priceSource: "live",
+    // Measured on the LIVE book where there is one. A spread widens and narrows all
+    // day, and a stored width is as stale as a stored price.
+    spreadCents:
+      q.yesAsk !== null && q.yesBid !== null
+        ? Math.round((q.yesAsk - q.yesBid) * 1000) / 10
+        : storedSpreadCents(r),
   };
+}
+
+/** Book width from the snapshot, for rows with no live quote. */
+function storedSpreadCents(r: BoardRow): number | null {
+  if (r.yesBid === null || r.yesBid === undefined) return null;
+  // The yes book is the one we archive both sides of; its width is the book's width.
+  const ask = r.side === "no" ? 1 - r.marketProb : r.marketProb;
+  return Math.round((ask - r.yesBid) * 1000) / 10;
 }
 
 export type BoardRow = {
@@ -80,6 +96,16 @@ export type BoardRow = {
   projMedian: number | null;
   /** "live" when the ask came from the market just now, "stored" when it did not. */
   priceSource: "live" | "stored";
+  /** Best bid on the yes side, from the snapshot. */
+  yesBid: number | null;
+  /** Width of the book in cents. A prediction market needs a counterparty: an ask with
+   *  no bid near it is one participant's resting offer, not a price the market has
+   *  agreed on -- there is nothing to disagree WITH. */
+  spreadCents: number | null;
+  /** Contracts traded and outstanding, archived on every snapshot and never read
+   *  downstream until now. */
+  volume: number | null;
+  openInterest: number | null;
 };
 
 /** Why the board is empty, taken from the last projection run rather than guessed. */
@@ -157,6 +183,9 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       l."closeTime"       as "closeTime",
       l."priceAsOf"       as "priceAsOf",
       pr."pOverByStrike"  as "pOverByStrike",
+      l."yesBid"::float8  as "yesBid",
+      l.volume::float8    as volume,
+      l."openInterest"::float8 as "openInterest",
       pr.mean::float8     as "projMean",
       pr.stdev::float8    as "projStdev",
       (pr.distribution->>'50')::float8 as "projMedian",
@@ -705,6 +734,9 @@ export async function getPlayerMarkets(gsisId: string): Promise<BoardRow[]> {
       l."kellyFraction"::float8 as kelly, l.tier::text as tier, l."sampleN" as "sampleN",
       l."runTs" as "runTs", l."closeTime" as "closeTime", l."priceAsOf" as "priceAsOf",
       pr."pOverByStrike" as "pOverByStrike",
+      l."yesBid"::float8  as "yesBid",
+      l.volume::float8    as volume,
+      l."openInterest"::float8 as "openInterest",
       pr.mean::float8 as "projMean", pr.stdev::float8 as "projStdev",
       (pr.distribution->>'50')::float8 as "projMedian",
       l.reason as reason,

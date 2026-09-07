@@ -2516,3 +2516,40 @@ Aaron Rodgers 325+ passing yards is quoted 0.05/0.09 on zero volume. Those price
 real and takeable, so nothing here is fabricated — but an edge measured against an
 untested quote is weaker evidence than one against a liquid book, and the board presents
 them identically. The treatment is a product decision and is recorded, not chosen.
+
+## A price nobody will trade against is not a market price
+
+Kalshi is an exchange, not a bookmaker: every contract needs someone on the other side.
+The board's entire claim is that the model disagrees with the market — and on a book
+quoted 0.05 against 0.34 there is no market price to disagree with, only one
+participant's resting offer and a 29-cent gap.
+
+Measured across the 2,041 live markets on the Week 1 slate:
+
+    yes-side spread     <=5c   24%
+                        6-10c  20%
+                        11-15c  9%
+                        16-25c 15%
+                        >25c   32%        median 13c, p75 32c
+
+    never traded        473 / 2041  (23%)
+    volume p25/50/75/90    1 / 18 / 78 / 445
+
+More than half the book is wider than ten cents and a quarter of it has never traded.
+Top Picks now holds back anything wider than **15c** and says how many it held back, and
+every surviving row carries volume and spread. Zero volume is rendered in the warning
+tone rather than hidden: a tight quote nobody has taken is a different claim from one
+hundreds of people have, and both are worth seeing.
+
+**The edge is still computed against the ask**, which is what you would actually pay.
+This gate is not about the arithmetic being wrong — it is about whether the disagreement
+means anything. A null spread is treated as a wide one, because "we could not measure the
+book" is not evidence that it is tight.
+
+Spread is measured on the LIVE book when there is one and falls back to the snapshot
+otherwise, for the same reason the price does: a stored width is as stale as a stored
+price.
+
+`yesBid`, `volume` and `openInterest` have been captured on every archive snapshot since
+the archiver was written and had never been read by anything downstream. The board could
+not previously tell a market from a single resting offer.

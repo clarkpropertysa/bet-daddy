@@ -257,6 +257,14 @@ model Signal {
   /// Timestamp of the snapshot this price came from, so the UI can show how old the
   /// quote is rather than implying it is current.
   priceAsOf     DateTime?
+  /// The best BID on the yes side, so the board can measure how wide the book is.
+  /// A prediction market needs a counterparty: an ask with no bid behind it is one
+  /// participant's resting offer, not a price the market has agreed on.
+  yesBid        Decimal? @db.Decimal(6, 4)
+  /// Contracts traded and contracts outstanding, straight from the exchange. Both are
+  /// archived on every snapshot and neither had ever been read.
+  volume        Decimal? @db.Decimal(18, 4)
+  openInterest  Decimal? @db.Decimal(18, 4)
   /// ACTUAL KICKOFF, from the nflverse schedule.
   ///
   /// Not `closeTime`, which is Kalshi's settlement deadline and lands roughly two days

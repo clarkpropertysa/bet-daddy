@@ -30,6 +30,10 @@ def _write(tmp_path: Path, rows: list[dict]) -> str:
         ("ts", pa.timestamp("us", tz="UTC")),
         ("yes_ask", pa.float64()),
         ("no_ask", pa.float64()),
+        # Liquidity: the board needs to know whether there is anyone to trade with.
+        ("yes_bid", pa.float64()),
+        ("volume", pa.float64()),
+        ("open_interest", pa.float64()),
         ("strike", pa.float64()),
         ("close_time", pa.timestamp("us", tz="UTC")),
         ("mins_to_close", pa.int64()),
@@ -41,7 +45,7 @@ def _write(tmp_path: Path, rows: list[dict]) -> str:
 
 
 def _row(ticker, *, ask, result, close_in_mins, age_mins, mins_to_close=None,
-         no_ask=None):
+         no_ask=None, yes_bid=None, volume=0.0, open_interest=0.0):
     close = NOW + dt.timedelta(minutes=close_in_mins)
     ts = NOW - dt.timedelta(minutes=age_mins)
     return {
@@ -49,6 +53,10 @@ def _row(ticker, *, ask, result, close_in_mins, age_mins, mins_to_close=None,
         "market_type": "pass_yds", "ts": ts, "yes_ask": ask,
         # The REAL no-side ask. Inferring 1 - yes_ask is fiction on a one-sided book.
         "no_ask": no_ask if no_ask is not None else (None if ask is None else 1.0 - ask),
+        "yes_bid": yes_bid if yes_bid is not None else (
+            None if ask is None else max(ask - 0.02, 0.0)),
+        "volume": volume,
+        "open_interest": open_interest,
         "strike": 250.0,
         "close_time": close, "mins_to_close": mins_to_close if mins_to_close
         is not None else int((close - ts).total_seconds() // 60),

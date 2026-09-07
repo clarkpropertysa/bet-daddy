@@ -133,7 +133,7 @@ def _settled_prices(archive_glob: str, mins_before_close: int) -> list[dict]:
               and yes_ask <= {MAX_TRADEABLE_ASK}
         )
         select market_ticker, series_ticker, market_type, strike, yes_ask,
-               no_ask, result,
+               no_ask, yes_bid, volume, open_interest, result,
                close_time, mins_to_close, ts as price_ts
         from ranked where rn = 1 and result in ('yes', 'no')
     """).to_arrow_table().to_pylist()
@@ -161,7 +161,7 @@ def _open_prices(archive_glob: str, max_price_age_mins: int) -> list[dict]:
               and yes_ask <= {MAX_TRADEABLE_ASK}
         )
         select market_ticker, series_ticker, market_type, strike, yes_ask,
-               no_ask, result,
+               no_ask, yes_bid, volume, open_interest, result,
                close_time,
                cast(date_diff('minute', now(), close_time) as bigint) as mins_to_close,
                ts as price_ts
@@ -1064,8 +1064,9 @@ def run(
                       (id, "projectionId", "marketTicker", "runTs", side, "modelProb",
                        "marketProb", "feeCents", "edgeCentsNet", "kellyFraction",
                        tier, "sampleN", reason, "modelVersion", "featureAsOf",
-                       "closeTime", "priceAsOf", strike, kickoff, source, "ingestedAt")
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s)
+                       "closeTime", "priceAsOf", strike, kickoff,
+                       "yesBid", volume, "openInterest", source, "ingestedAt")
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::"Tier",%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (str(uuid.uuid4()), proj_id, m["market_ticker"], now,
                      edge.side,
@@ -1087,6 +1088,10 @@ def run(
                      # board filtered on close time and therefore kept serving picks
                      # through the game and for two days after it.
                      kickoff_at,
+                     # Liquidity. Captured on every snapshot since the archiver was
+                     # written and never read: the board could not tell a market from
+                     # a single resting offer.
+                     m.get("yes_bid"), m.get("volume"), m.get("open_interest"),
                      "model", now),
                 )
                 n_sig += 1

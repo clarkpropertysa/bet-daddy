@@ -76,3 +76,19 @@ export function projected(value: number | null, marketType: string): string {
   const coarse = marketType.endsWith("_yds") || marketType.endsWith("_yards");
   return coarse ? value.toFixed(0) : value.toFixed(1);
 }
+
+/**
+ * Contracts traded, at a glance. 1597 -> "1.6k".
+ *
+ * Volume is the only thing on the board that says whether anyone is actually trading
+ * this market. Kalshi is an exchange, not a bookmaker: a contract with no volume has
+ * no counterparty, and an edge against a price nobody has ever taken is a different
+ * claim from an edge against a price hundreds of people have.
+ */
+export function compactCount(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  const n = Math.round(Number(v));
+  if (n < 1000) return String(n);
+  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n / 1000)}k`;
+}

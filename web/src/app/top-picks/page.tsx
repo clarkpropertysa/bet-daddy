@@ -4,7 +4,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { StaleBanner } from "@/components/StaleBanner";
 import { Tier } from "@/components/Tier";
-import { priceCents, projected, signedCents, strikeLabel } from "@/lib/format";
+import {
+  compactCount,
+  priceCents,
+  projected,
+  signedCents,
+  strikeLabel,
+} from "@/lib/format";
 import { gameFromTicker, labelFor } from "@/lib/markets";
 import { getJobHealth, getNextSlate, getProjectionBoard } from "@/lib/queries";
 
@@ -12,6 +18,20 @@ export const dynamic = "force-dynamic";
 
 /** A prop has to clear its own fee to be worth listing at all. */
 const MIN_EDGE_CENTS = 1.0;
+
+/**
+ * How wide a book may be before it stops being a market.
+ *
+ * Kalshi is an exchange: every contract needs someone on the other side. The board's
+ * whole claim is "the model disagrees with the market", and on a book quoted 0.05/0.34
+ * there is no market price to disagree with -- there is one participant's resting
+ * offer and a 29-cent gap. Measured across the live slate the median spread is 13c and
+ * a third of markets are wider than 25c, so this is not a rare edge case.
+ *
+ * The edge itself is still computed honestly against the ask, which is what you would
+ * pay. This gate is about whether the disagreement means anything.
+ */
+const MAX_SPREAD_CENTS = 15;
 
 export default async function TopPicksPage() {
   const [rows, slate, health] = await Promise.all([
@@ -23,8 +43,24 @@ export default async function TopPicksPage() {
     getJobHealth(),
   ]);
 
+  const wideBooks = rows.filter(
+    (r) =>
+      r.edgeCentsNet >= MIN_EDGE_CENTS &&
+      !r.implausible &&
+      r.spreadCents !== null &&
+      r.spreadCents > MAX_SPREAD_CENTS,
+  ).length;
+
   const props = rows
-    .filter((r) => r.edgeCentsNet >= MIN_EDGE_CENTS && !r.implausible)
+    .filter(
+      (r) =>
+        r.edgeCentsNet >= MIN_EDGE_CENTS &&
+        !r.implausible &&
+        // A null spread means we could not measure the book, which is not the same as
+        // a tight one and must not pass silently.
+        r.spreadCents !== null &&
+        r.spreadCents <= MAX_SPREAD_CENTS,
+    )
     .slice(0, 10);
 
   /**
@@ -108,6 +144,7 @@ export default async function TopPicksPage() {
           <h2 className="display text-[14px] text-ink">Player props</h2>
           <span className="eyebrow">
             one row per projection · {props.length} clearing the bar
+            {wideBooks > 0 ? ` · ${wideBooks} held back on a wide book` : ""}
           </span>
         </div>
 
@@ -182,6 +219,13 @@ export default async function TopPicksPage() {
                     {r.team ?? "—"} ·{" "}
                     {gameFromTicker(r.marketTicker)?.label ?? r.gameId} · best of{" "}
                     {r.ladderRungs} {r.ladderRungs === 1 ? "line" : "lines"}
+                    {/* Whether there is anyone to trade with. Kalshi is an exchange,
+                        so a contract nobody has traded has no counterparty yet. */}
+                    {" · "}
+                    <span className={r.volume ? "" : "text-warn"}>
+                      {compactCount(r.volume)} traded
+                    </span>
+                    {r.spreadCents !== null ? ` · ${r.spreadCents.toFixed(0)}¢ spread` : ""}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
@@ -198,6 +242,13 @@ export default async function TopPicksPage() {
           </ol>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+          Kalshi is an exchange, so every contract needs someone on the other side.
+          Books wider than {MAX_SPREAD_CENTS}¢ are held back: the claim here is that the
+          model disagrees with the market, and a book quoted 5¢ against 34¢ has no market
+          price to disagree with. Volume is shown so a quote nobody has taken is
+          distinguishable from one hundreds of people have.
+        </p>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
           The projection is the model&apos;s central estimate for the whole game; the
           line beside it is whichever quoted strike that estimate disagrees with most
           after the exact taker fee. Every one of these is{" "}
