@@ -2722,3 +2722,41 @@ is no injuries table in Postgres. The model knows the number — it is what trig
 refusal — and the UI has no way to reach it. Surfacing it, and surfacing WHY a player is
 absent from the board at all, needs a table, a sync job and a query. Recorded rather than
 built two days before launch.
+
+## The model's reasons now reach the reader
+
+Two things the model knew and no page could state. Both were the same shape as the
+archiver capturing liquidity nothing read: the data existed, and the consumer did not.
+
+**The injury report existed only as Parquet.** `features/availability.py` measures that a
+listed player who did not practise takes no offensive snap **34.3%** of the time, and
+that number is what makes the projection refuse to price his teammate — but it lived
+inside the pipeline. A card could say a split was "not measurable" and could not say the
+teammate may well not play. `Injury` now carries the week's report with the measured
+probability attached, synced by `ingest/sync_injuries.py`. The RATE comes from a
+completed season and the STATUS from this week, the same separation the projection uses.
+
+**A refused player simply vanished.** The projection declines in several situations and
+every one was silent: no signal, no explanation, a card whose markets list read like a
+data failure. `ProjectionRefusal` is written by the run that made the decision — not
+re-derived in the web layer, so the rule keeps one home — and replaced wholesale each
+run, since a player refused an hour ago and priced now must stop showing a stale reason.
+
+Rhamondre Stevenson's card now opens with:
+
+> **Not priced this week.** TreVeyon Henderson in the same RB room is 34% likely not to
+> play, and no with/without history exists to price the share that would move.
+>
+> TreVeyon Henderson (RB) did not participate in practice — ankle.
+> 34% likely to take no offensive snap. His carries or targets would have to go somewhere.
+
+And Henderson's own card states his designation with the same measured rate beside it.
+
+The room is filtered to the SAME POSITION deliberately. A tight end sitting does not
+redistribute carries, and listing him would bury the back who does — the same mistake
+that put a quarterback and two tight ends at the top of the "not measurable" list before
+it was ranked by position.
+
+The sync runs in `ingest-nflverse`, deriving the week from the schedule so it advances on
+its own. Before the season opens nflverse publishes nothing and the job writes zero rows,
+which is the correct output rather than a failure.

@@ -679,6 +679,61 @@ export async function getPlayerGameLog(gsisId: string): Promise<GameLogRow[]> {
  * with everything else that changed that week, and saying so is more useful than
  * showing a number that cannot carry the weight.
  */
+export type InjuryNote = {
+  fullName: string;
+  position: string | null;
+  reportStatus: string | null;
+  practiceStatus: string | null;
+  primaryInjury: string | null;
+  pInactive: number | null;
+  isSelf: boolean;
+};
+
+/**
+ * This player's own injury line, and any same-position teammate on the report.
+ *
+ * The room is what matters for a prop: a back's carries are not his own property, and
+ * the other back missing practice changes his projection more than most things the
+ * model measures. Same position only -- a tight end sitting does not redistribute
+ * carries, and listing him would bury the one who does.
+ */
+export async function getInjuryContext(gsisId: string): Promise<InjuryNote[]> {
+  return prisma.$queryRaw<InjuryNote[]>`
+    with me as (
+      select p.id, p."teamId", p.position from "Player" p where p."gsisId" = ${gsisId}
+    ),
+    latest as (
+      select max(week) as week from "Injury"
+    )
+    select pl."fullName", pl.position,
+           i."reportStatus", i."practiceStatus", i."primaryInjury",
+           i."pInactive"::float8 as "pInactive",
+           (pl.id = me.id) as "isSelf"
+    from "Injury" i
+    join "Player" pl on pl.id = i."playerId"
+    cross join me
+    cross join latest
+    where i.week = latest.week
+      and pl."teamId" = me."teamId"
+      and (pl.id = me.id or pl.position is not distinct from me.position)
+    order by (pl.id = me.id) desc, i."pInactive" desc nulls last
+  `;
+}
+
+/** Why this player carries no signal this week, straight from the run that decided. */
+export async function getRefusal(
+  gsisId: string,
+): Promise<{ reason: string; detail: string } | null> {
+  const rows = await prisma.$queryRaw<{ reason: string; detail: string }[]>`
+    select r.reason, r.detail
+    from "ProjectionRefusal" r
+    join "Player" p on p.id = r."playerId"
+    where p."gsisId" = ${gsisId}
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
 export type UnmeasuredSplit = {
   teammate: string;
   nWith: number;

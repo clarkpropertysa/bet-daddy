@@ -5,6 +5,7 @@ import { GameLog } from "@/components/GameLog";
 import { PageHeader } from "@/components/PageHeader";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PropBoard, type Row } from "@/components/PropBoard";
+import { AvailabilityPanel } from "@/components/AvailabilityPanel";
 import { SplitsPanel } from "@/components/SplitsPanel";
 import { labelFor } from "@/lib/markets";
 import {
@@ -12,6 +13,8 @@ import {
   getPlayerGameLog,
   getPlayerMarkets,
   getPlayerSplits,
+  getInjuryContext,
+  getRefusal,
   getUnmeasuredSplits,
   type GameLogRow,
 } from "@/lib/queries";
@@ -53,10 +56,12 @@ export default async function PlayerPage({
   const player = await getPlayer(decodeURIComponent(gsisId));
   if (!player) notFound();
 
-  const [log, splits, unmeasured, markets] = await Promise.all([
+  const [log, splits, unmeasured, injuries, refusal, markets] = await Promise.all([
     getPlayerGameLog(player.gsisId),
     getPlayerSplits(player.gsisId),
     getUnmeasuredSplits(player.gsisId),
+    getInjuryContext(player.gsisId),
+    getRefusal(player.gsisId),
     getPlayerMarkets(player.gsisId),
   ]);
 
@@ -148,6 +153,7 @@ export default async function PlayerPage({
         </div>
 
         <div className="space-y-4">
+          <AvailabilityPanel notes={injuries} refusal={refusal} />
           <SplitsPanel splits={splits} unmeasured={unmeasured} />
 
           {markets.length > 0 && season !== null && (

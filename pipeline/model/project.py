@@ -95,6 +95,7 @@ MARKET_MODEL = {
 
 # A 0c ask is not a price you can be filled at -- it is an empty or one-sided book
 # reported as a number. 48% of preseason entry prices sat at these extremes.
+REFUSAL_INSERT = 'insert into "ProjectionRefusal" (id,"playerId","gameId",reason,detail,"runTs",source) values (%s,%s,%s,%s,%s,%s,%s) on conflict ("playerId","gameId",reason) do update set detail = excluded.detail, "runTs" = excluded."runTs"'
 MIN_TRADEABLE_ASK = 0.01
 MAX_TRADEABLE_ASK = 0.99
 
@@ -540,6 +541,10 @@ def run(
     except Exception:
         clv_by_family = {}
     room_examples: dict[str, str] = {}
+    # Every refusal, so the reason can be shown where a reader looks
+    # for the player. Written from here rather than re-derived in the
+    # web layer: the rule keeps one home.
+    refusals: dict[tuple, str] = {}
 
     if rates_injuries_path and snaps_path and players_path:
         try:
@@ -740,6 +745,8 @@ def run(
                         role_examples[_who] = role_describe(
                             _ratio, st.position, st.depth_rank,
                             prior_snaps[xr["gsis_id"]])
+                    refusals[(xr["gsis_id"], parts[1], "role_not_sampled")] = (
+                        role_describe(_ratio, st.position, st.depth_rank, prior_snaps[xr['gsis_id']]))
                     skip("role_not_sampled_last_season"); continue
 
                 # A teammate who may not play makes this a conditional the simulator
@@ -760,6 +767,8 @@ def run(
                         if _who not in room_examples:
                             room_examples[_who] = room_describe(
                                 st.position, _mate[0], _mate[1])
+                        refusals[(xr["gsis_id"], parts[1], "teammate_availability_unresolved")] = (
+                            room_describe(st.position, _mate[0], _mate[1]))
                         skip("teammate_availability_unresolved"); continue
 
             try:
@@ -1123,6 +1132,22 @@ def run(
                      "model", now),
                 )
                 n_sig += 1
+
+
+        # Replaced wholesale each run: a player refused an hour ago and priced now must
+        # stop showing a stale explanation, and the board is scoped to one run anyway.
+        with conn.cursor() as cur:
+            cur.execute('delete from "ProjectionRefusal"')
+            if refusals:
+                cur.execute(
+                    'select "gsisId", id from "Player" where "gsisId" is not null')
+                known = dict(cur.fetchall())
+                params = [
+                    (str(uuid.uuid4()), known[g], game, reason, detail, now, "model")
+                    for (g, game, reason), detail in refusals.items() if g in known
+                ]
+                if params:
+                    cur.executemany(REFUSAL_INSERT, params)
 
     return {"markets": len(markets), "projections": n_proj,
             "signals": n_sig, "skipped": skipped,

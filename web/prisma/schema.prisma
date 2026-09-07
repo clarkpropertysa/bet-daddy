@@ -76,6 +76,8 @@ model Player {
   promotedFor String?
   externalIds Json     @default("{}")   // espn, pfr, sleeper, sportradar...
   aliases     PlayerAlias[]
+  injuries    Injury[]
+  refusals    ProjectionRefusal[]
   source      String
   ingestedAt  DateTime @default(now())
   @@index([sport, fullName])
@@ -401,4 +403,55 @@ model PipelineRun {
   error       String?
   meta        Json?
   @@index([job, startedAt])
+}
+
+
+/// This week's injury report, with the MEASURED probability that the designation
+/// means no offensive snap.
+///
+/// The report has only ever existed as Parquet read by the pipeline, so the number
+/// that makes the model refuse to price a player was unreachable from the UI: a card
+/// could say a teammate's effect was "not measurable" but not that he is 34% likely
+/// to sit this week.
+model Injury {
+  id             String   @id @default(cuid())
+  playerId       String
+  player         Player   @relation(fields: [playerId], references: [id])
+  season         Int
+  week           Int
+  /// Out / Doubtful / Questionable, or null on a midweek practice report -- game
+  /// designations are not filed until Friday, which is why absence cannot be read
+  /// from this field alone.
+  reportStatus   String?
+  practiceStatus String?
+  primaryInjury  String?
+  /// P(no offensive snap) for this (report, practice) cell, measured on a completed
+  /// season by features/availability.py. Stored so the UI need not rebuild the table.
+  pInactive      Decimal? @db.Decimal(6, 4)
+  source         String
+  ingestedAt     DateTime @default(now())
+  @@unique([playerId, season, week])
+  @@index([season, week])
+}
+
+/// Why a player carries no signal this week.
+///
+/// The projection refuses rather than guesses in several situations, and every one of
+/// them was invisible: the player simply vanished from the board with no explanation
+/// anywhere. Persisted from the run so the reason can be shown where the reader looks
+/// for the player, and written by the pipeline so the rule is not implemented twice.
+model ProjectionRefusal {
+  id         String   @id @default(cuid())
+  playerId   String
+  player     Player   @relation(fields: [playerId], references: [id])
+  gameId     String
+  /// Stable machine reason, e.g. "teammate_availability_unresolved".
+  reason     String
+  /// The sentence shown to a reader, generated where the decision was made.
+  detail     String
+  runTs      DateTime
+  source     String
+  ingestedAt DateTime @default(now())
+  @@unique([playerId, gameId, reason])
+  @@index([runTs])
 }
