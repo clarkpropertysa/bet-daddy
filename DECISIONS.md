@@ -2760,3 +2760,22 @@ it was ranked by position.
 The sync runs in `ingest-nflverse`, deriving the week from the schedule so it advances on
 its own. Before the season opens nflverse publishes nothing and the job writes zero rows,
 which is the correct output rather than a failure.
+
+## Top Picks can now be asked why
+
+The Why panel is the feature that makes the tool worth using over guessing — every claim
+with the number behind it, read from the STORED signal so it shows what the model thought
+when the pick fired rather than a fresh recomputation. It was reachable only from the
+Prop Board.
+
+Top Picks is the page a reader is most likely to act from, and it had no way to ask. The
+reason was structural rather than an oversight: `WhyPanel` needs client state and the
+page is a server component, so there was nowhere to hold the selection.
+
+The list is now `components/TopPickList.tsx`, a client component wrapping the same row
+markup unchanged. Each row is a button that opens the panel, with a `why →` affordance
+matching the board's, a hover and focus state, and an `aria-label` naming the player and
+market so the control is not just an unlabelled row to a screen reader.
+
+Moving the markup left eight dead imports behind on the page; lint caught them and they
+are gone.
