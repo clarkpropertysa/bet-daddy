@@ -2672,3 +2672,20 @@ can be re-run against the production configuration once 2026 provides the weeks.
 roughly five points. A row claiming 78% is nearer 73%, which turns a +26c edge into about
 +21c — still positive, but a pick sitting just above the fee bar at high confidence may
 not really clear it.
+
+## The payout multiple, stated the way the exchange states it
+
+Kalshi shows a return multiple — "1.21x" — which is easier to read than a cents-per-
+contract margin. It is simply `1 / price`: a contract bought at 82.6c returns a dollar,
+so 1.211x. Verified against the API, which exposes no such field; the exchange computes
+it in its own UI, GROSS of fees. Ours is stated gross for the same reason, so the number
+on the board is the number the reader will see when they go to trade.
+
+**It is shown NEXT TO the edge, not instead of it.** The multiple is a restatement of the
+price and carries no opinion at all — it is knowable without any model, and a long shot
+always shows a big one. A 20x contract is not a good bet because it is 20x. The edge
+beside it is the model's actual claim and is net of the exact taker fee.
+
+The two answer different questions, so the board asks both: *what does a dollar come back
+as*, and *is the price worth paying*. Replacing the second with the first would have left
+the board restating Kalshi's own screen.

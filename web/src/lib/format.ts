@@ -92,3 +92,22 @@ export function compactCount(v: number | null | undefined): string {
   if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
   return `${Math.round(n / 1000)}k`;
 }
+
+/**
+ * Payout multiple, the way Kalshi states it: what one dollar becomes if the contract
+ * settles yes.
+ *
+ * It is simply `1 / price` — a contract bought at 82.6c pays a dollar, so 1.21x. This
+ * matches the figure on the exchange deliberately, GROSS of fees, because the point of
+ * showing it is that it is the same number the reader will see when they go to trade.
+ *
+ * IT CARRIES NO OPINION. The multiple is a restatement of the price and is knowable
+ * without any model at all; a long shot always shows a big one. The edge beside it is
+ * the model's actual claim and is net of the exact taker fee. Shown together because
+ * they answer different questions: what do I get back, and is it worth taking.
+ */
+export function payoutMultiple(price: number | null | undefined): string {
+  if (price === null || price === undefined || price <= 0 || price >= 1) return "—";
+  const x = 1 / price;
+  return x >= 10 ? `${x.toFixed(0)}×` : `${x.toFixed(2)}×`;
+}

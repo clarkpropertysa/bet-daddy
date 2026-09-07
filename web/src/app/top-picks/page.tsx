@@ -6,6 +6,7 @@ import { StaleBanner } from "@/components/StaleBanner";
 import { Tier } from "@/components/Tier";
 import {
   compactCount,
+  payoutMultiple,
   priceCents,
   projected,
   signedCents,
@@ -228,11 +229,21 @@ export default async function TopPicksPage() {
                     {r.spreadCents !== null ? ` · ${r.spreadCents.toFixed(0)}¢ spread` : ""}
                   </p>
                 </div>
+                {/* Two numbers answering two questions: what a dollar comes back as
+                    if it hits, and whether the model thinks it is worth taking. The
+                    multiple is the figure Kalshi itself shows, so it is stated gross
+                    of fees to match; the edge is net of the exact taker fee. */}
+                <div className="shrink-0 text-right">
+                  <p className="display text-[15px] text-ink">
+                    {payoutMultiple(r.marketProb)}
+                  </p>
+                  <p className="eyebrow">if it hits</p>
+                </div>
                 <div className="shrink-0 text-right">
                   <p className="display text-[15px] text-pos">
                     {signedCents(r.edgeCentsNet)}
                   </p>
-                  <p className="eyebrow">per contract</p>
+                  <p className="eyebrow">edge</p>
                 </div>
                 <div className="hidden shrink-0 sm:block">
                   <Tier tier={r.tier} n={r.sampleN} />
@@ -242,6 +253,12 @@ export default async function TopPicksPage() {
           </ol>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+          The multiple is Kalshi&apos;s own figure — what a dollar returns if the
+          contract settles — and it carries no opinion: a long shot always shows a big
+          one. The edge beside it is the model&apos;s claim, net of the exact taker fee,
+          and is the number that says whether the price is worth paying.
+        </p>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
           Kalshi is an exchange, so every contract needs someone on the other side.
           Books wider than {MAX_SPREAD_CENTS}¢ are held back: the claim here is that the
           model disagrees with the market, and a book quoted 5¢ against 34¢ has no market
