@@ -2823,3 +2823,43 @@ which is why this survived the local check and appeared in production.
 
 Effect: of 509 rows clearing the fee bar, 395 pass the width gate and **114 are held
 back** that previously were not.
+
+## The variance fix was measured and rejected
+
+Drake Maye, UNDER 174.5 passing yards, +10.4c — flagged as looking wrong, and it was.
+The model put P(under) at 31% against a market at 19% and an empirical record of ONE
+game under that line in seventeen. Correcting the spread alone erased the edge entirely
+(-2.4c), so the whole pick came from the width of the distribution.
+
+The mechanism looked clear. The simulator draws volume and per-unit efficiency
+independently and multiplies, and Maye's attempts and yards-per-attempt correlate at
+**r = -0.73**: independence implies sd 91.6 where his games showed 48.1, a 1.90x
+inflation matching the projection's 87.5 almost exactly.
+
+**The obvious fix is not supported by the backtest.** Targeting the simulated spread at
+a shrunk coefficient of variation — pool CV 0.301/0.674/0.640 with k of 0.20/0.30/0.45,
+fitted on season pairs — made every band WORSE, at 3,000 and again at 12,000 iterations:
+
+    band              before    after
+    within 0.5 sd     0.2346   0.2354
+    0.5-1.0 sd        0.1817   0.1865
+    1.0-1.5 sd        0.1088   0.1127
+    beyond 1.5 sd     0.0499   0.0535     <- the band it was built for
+
+In the far tail the model is already slightly UNDER-confident (says 8.4%, happens 9.8%),
+so narrowing the distribution moved it away from the truth rather than toward it. The
+change is reverted; `features/spread.py` is deleted rather than left dormant, because
+unused paths in this codebase have repeatedly come back as bugs.
+
+**What the diagnosis got wrong.** The 1.90x compared the model's 2026 projection against
+Maye's 2025 *realised* spread — one sample, and a coefficient of variation that barely
+persists (r = +0.168 for passing). His 0.186 is not a forecast of 2026; the pool 0.301 is
+closer, and against that the model's implied 0.399 is 33% wide, not 90%.
+
+So the pick is probably still wrong and the reason is narrower than "the simulator is
+miscalibrated": Maye is an unusually consistent quarterback and the model has no way to
+know it, because consistency does not carry across seasons well enough to trust.
+
+The backtest keeps the band-by-band tail diagnostic this produced. Overall Brier hides
+exactly this: the bulk of predictions dominate it, while every bet on the board lives out
+where model and market disagree.

@@ -230,7 +230,7 @@ def main():
     for (kind, pid), weeks in cands.items():
         played_weeks[pid].update(weeks)
 
-    model_pairs, base_pairs, weeks_of = [], [], []
+    model_pairs, base_pairs, weeks_of, zs = [], [], [], []
     by_market = defaultdict(lambda: ([], []))
     skipped = defaultdict(int)
     hist: dict = defaultdict(list)
@@ -258,6 +258,8 @@ def main():
             def score(market, out, key):
                 got = act[key]
                 h = [x[key] for x in prior]
+                mu = out.get("mean", 0.0)
+                sd = out.get("stdev", 0.0) or 1.0
                 for s in GRIDS[market]:
                     p = out["p_over_by_strike"].get(str(s))
                     if p is None:
@@ -265,6 +267,7 @@ def main():
                     hit = 1.0 if got > s else 0.0
                     model_pairs.append((p, hit))
                     weeks_of.append(wk)
+                    zs.append((s - mu) / sd)
                     base_pairs.append((empirical_p(h, s), hit))
                     by_market[market][0].append((p, hit))
                     by_market[market][1].append((empirical_p(h, s), hit))
@@ -365,6 +368,21 @@ def main():
                 ch = brier([(one_sided(p), o) for p, o in hi_test])
                 print(f"  on the >50% rows only: {rh:.4f} -> {ch:.4f} "
                       f"({(rh-ch)/rh:+.2%}, n={len(hi_test):,})")
+
+    # THE REGION THE PICKS LIVE IN. Overall Brier is dominated by the bulk of the
+    # distribution; a fix aimed at the tails can be invisible there and still decide
+    # every bet on the board, because a bet is only made where model and market
+    # disagree -- which is out in the tails.
+    print(f"\nby how far the strike sits from the projection (in simulated sd)")
+    print(f"  {'band':16} {'n':>7} {'Brier':>8} {'predicted':>10} {'actual':>8}  gap")
+    for lo, hi, lab in ((0.0, 0.5, "within 0.5 sd"), (0.5, 1.0, "0.5-1.0 sd"),
+                        (1.0, 1.5, "1.0-1.5 sd"), (1.5, 99, "beyond 1.5 sd")):
+        g = [(p, o) for (p, o), z in zip(model_pairs, zs) if lo <= abs(z) < hi]
+        if len(g) < 50:
+            continue
+        pr = sum(p for p, _ in g) / len(g)
+        ac = sum(o for _, o in g) / len(g)
+        print(f"  {lab:16} {len(g):7,} {brier(g):8.4f} {pr:10.3f} {ac:8.3f}  {ac-pr:+.3f}")
 
     print(f"\nby market")
     print(f"  {'market':12} {'n':>7} {'model':>8} {'box score':>10}  skill")
