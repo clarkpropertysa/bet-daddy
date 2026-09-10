@@ -2897,7 +2897,9 @@ as a loss of one full spread on every under: median CLV exactly -1.00c on a nigh
 books, which is precisely the tier's pass mark. NO positions now close on the yes bid.
 
 After the fixes: 161 markets graded, each with a real pre-kickoff close and a settlement,
-none at 0 or 1; CLV mean +0.78c, median 0.00.
+none at the bug's in-game 0.00/1.00. Six close at a 1c yes bid, and those are genuine: deep
+receptions rungs (A. Brown 11+, Barner 7+/8+, Smith-Njigba 12+/13+/14+) quoted there in the
+last pre-game snapshot. CLV mean +0.78c, median 0.00.
 
 Also recorded: the backfill's `status="settled"` query is correct. Kalshi rejects
 `status=finalized` as a filter even though finalized markets report that status; the
