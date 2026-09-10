@@ -25,7 +25,7 @@ CLV a slow restatement of settlement and forfeited the independence above.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import duckdb
@@ -93,6 +93,11 @@ def closing_price(
     property that makes it readable after dozens of contracts instead of hundreds.
     """
     con = _con(archive_glob)
+    # A naive kickoff is UTC (that is how Postgres stores it) and must be bound as
+    # such; left naive, DuckDB reads it in the session zone and the "closing line"
+    # moves hours into the game. See grade._utc for the incident.
+    if kickoff is not None and getattr(kickoff, "tzinfo", None) is None:
+        kickoff = kickoff.replace(tzinfo=timezone.utc)
     if kickoff is not None:
         r = con.execute(
             """

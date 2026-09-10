@@ -32,6 +32,69 @@ from pipeline.backtest.clv import compute_clv_cents, settle_pnl_cents
 from pipeline.common import config, db
 
 
+def _utc(ts):
+    """A kickoff as an AWARE UTC datetime.
+
+    Postgres hands back `timestamp without time zone`, stored as UTC. DuckDB reads a
+    naive value in its SESSION zone -- America/Chicago on the machine this was found on
+    -- so a naive 00:20 kickoff became 05:20 UTC, and "the last price before kickoff"
+    was a quote from the fourth quarter: yes 0.00/1.00 on every market. All 3,202
+    NE at SEA grades carried that close and a mean CLV of +16.5c. On a CI runner,
+    whose zone is UTC, the same code was right by accident, which is why it hid.
+    """
+    if ts is None:
+        return None
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+
+
+def closing_quotes(con, archive_glob: str, kickoffs: list[tuple]) -> tuple[dict, dict]:
+    """(market -> (closing yes_ask, closing yes_bid, result)), (market -> settled result).
+
+    BOTH yes quotes, because the two sides close on different ones. A NO position's
+    entry is recorded as `1 - no_ask`, which is the YES BID; comparing it against the
+    YES ASK at close scored a flat market as a loss of one full spread on every under --
+    median CLV -1.00c on a night of 1c books, which is exactly the tier's pass mark.
+
+    The closing line is the last archived yes quote at or before kickoff; settlement is
+    read separately because it only exists after the game.
+    """
+    closes: dict[str, tuple] = {}
+    results: dict[str, str] = {}
+    if not kickoffs:
+        return closes, results
+    # Belt and braces: the column is TIMESTAMPTZ and every value is aware, so the
+    # session zone cannot matter -- but pin it anyway.
+    con.execute("set TimeZone = 'UTC'")
+    con.execute("create or replace table cutoffs "
+                "(market_ticker varchar, kickoff timestamptz)")
+    con.executemany("insert into cutoffs values (?, ?)",
+                    [(t, _utc(k)) for t, k in kickoffs])
+    closes = {
+        r[0]: (r[1], r[2], r[3])
+        for r in con.execute(f"""
+            with ranked as (
+                select a.market_ticker, a.yes_ask, a.yes_bid, a.result, a.ts,
+                       row_number() over (
+                           partition by a.market_ticker order by a.ts desc
+                       ) rn
+                from read_parquet('{archive_glob}', union_by_name=true) a
+                join cutoffs c on c.market_ticker = a.market_ticker
+                where a.yes_ask is not null and a.ts <= c.kickoff
+            )
+            select market_ticker, yes_ask, yes_bid, result from ranked where rn = 1
+        """).fetchall()
+    }
+    results = {
+        r[0]: r[1]
+        for r in con.execute(f"""
+            select market_ticker, any_value(result)
+            from read_parquet('{archive_glob}', union_by_name=true)
+            where result in ('yes','no') group by 1
+        """).fetchall()
+    }
+    return closes, results
+
+
 def grade(archive_glob: str, model_version: str | None = None) -> dict:
     import psycopg
 
@@ -41,19 +104,28 @@ def grade(archive_glob: str, model_version: str | None = None) -> dict:
 
     with psycopg.connect(config.DATABASE_URL) as c, c.cursor() as cur:
         where = 'where s."modelVersion" = %s' if model_version else ""
+        # ONE DECISION PER MARKET. Every hourly run writes a fresh signal for every
+        # open market, so grading them all counted one game as ~20 settled contracts
+        # per market -- 3,202 rows from NE at SEA alone, enough for a single evening
+        # to carry a family past the 50 and 200 thresholds the tier is built on. The
+        # decision that counts is the last one made before kickoff.
+        mv = 's."modelVersion" = %s and' if model_version else ""
         cur.execute(
-            f'''select s.id, s."marketTicker", s.side, s."marketProb", s."feeCents",
+            f'''select distinct on (s."marketTicker")
+                       s.id, s."marketTicker", s.side, s."marketProb", s."feeCents",
                        s.kickoff
                 from "Signal" s
-                left join "SignalResult" r on r."signalId" = s.id
-                {where} {"and" if model_version else "where"} r."signalId" is null
-                  -- ONLY AFTER KICKOFF. Before it there is no closing line yet: the
-                  -- last snapshot is simply the current price, and grading against it
-                  -- records a CLV of roughly zero for a bet nobody has finished
-                  -- making. It graded 5,502 unplayed Week 1 signals at a mean of
-                  -- -2.96c, which would have gone straight into the tier maths as
-                  -- evidence the model was losing.
-                  and s.kickoff is not null and s.kickoff < now()''',
+                where {mv}
+                      -- ONLY AFTER KICKOFF, and only decisions made before it. Before
+                      -- kickoff there is no closing line yet; grading then recorded
+                      -- 5,502 unplayed signals at a mean of -2.96c.
+                      s.kickoff is not null and s.kickoff < now()
+                  and s."runTs" < s.kickoff
+                  and not exists (
+                      select 1 from "SignalResult" r
+                      join "Signal" s2 on s2.id = r."signalId"
+                      where s2."marketTicker" = s."marketTicker")
+                order by s."marketTicker", s."runTs" desc''',
             (model_version,) if model_version else (),
         )
         rows = cur.fetchall()
@@ -63,38 +135,7 @@ def grade(archive_glob: str, model_version: str | None = None) -> dict:
         # a Thursday game and a Sunday game close at different times, and Kalshi's own
         # close_time is two days after either.
         kickoffs = [(t, k) for _i, t, _s, _p, _f, k in rows if k is not None]
-        closes: dict[str, tuple] = {}
-        if kickoffs:
-            con.execute("create or replace table cutoffs (market_ticker varchar, "
-                        "kickoff timestamp)")
-            con.executemany("insert into cutoffs values (?, ?)", kickoffs)
-            closes = {
-                r[0]: (r[1], r[2])
-                for r in con.execute(f"""
-                    with ranked as (
-                        select a.market_ticker, a.yes_ask, a.result, a.ts,
-                               row_number() over (
-                                   partition by a.market_ticker order by a.ts desc
-                               ) rn
-                        from read_parquet('{archive_glob}', union_by_name=true) a
-                        join cutoffs c on c.market_ticker = a.market_ticker
-                        where a.yes_ask is not null and a.ts <= c.kickoff
-                    )
-                    select market_ticker, yes_ask, result from ranked where rn = 1
-                """).fetchall()
-            }
-            # Settlement is read separately: it is only known AFTER the game, so it
-            # cannot come from a pre-kickoff snapshot.
-            results = {
-                r[0]: r[1]
-                for r in con.execute(f"""
-                    select market_ticker, any_value(result)
-                    from read_parquet('{archive_glob}', union_by_name=true)
-                    where result in ('yes','no') group by 1
-                """).fetchall()
-            }
-        else:
-            results = {}
+        closes, results = closing_quotes(con, archive_glob, kickoffs)
 
         for sig_id, ticker, side, entry, fee, kickoff in rows:
             if kickoff is None:
@@ -106,7 +147,17 @@ def grade(archive_glob: str, model_version: str | None = None) -> dict:
             if close is None or close[0] is None:
                 skipped_no_close += 1
                 continue
-            close_price, _pre_result = close
+            close_ask, close_bid, _pre_result = close
+            # Bid-consistent on both sides: a YES entry is an ask and closes on the ask;
+            # a NO entry is stored as 1 - no_ask, i.e. the yes BID, and closes on the
+            # yes bid. Mixing them charged every under a phantom spread.
+            if side == "no":
+                if close_bid is None:
+                    skipped_no_close += 1
+                    continue
+                close_price = close_bid
+            else:
+                close_price = close_ask
             result = results.get(ticker)
             # UNITS. compute_clv_cents wants BOTH prices as YES prices and flips the
             # sign itself for a NO position. Signal.marketProb stores the price of

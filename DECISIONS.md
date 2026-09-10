@@ -2863,3 +2863,43 @@ know it, because consistency does not carry across seasons well enough to trust.
 The backtest keeps the band-by-band tail diagnostic this produced. Overall Brier hides
 exactly this: the bulk of predictions dominate it, while every bet on the board lives out
 where model and market disagree.
+
+## First game graded — and the grader had three bugs it could only show on a real result
+
+NE at SEA settled overnight. Scored straight from Kalshi's finalized results, the board as
+published (last run 16 minutes before kickoff, one pick per projection, both gates) went
+**7-12, +61.6c over 19 one-contract bets**, against a model expected edge of +119c. Closing
+line value from candlesticks at kickoff: **-0.1c per pick** — the market did not move toward
+or away from the model, which is what an entry 16 minutes before the close should show.
+Nineteen bets is noise; the grading path is the real deliverable of week one.
+
+Grading it exposed three defects, none reachable without a settled game:
+
+**The closing line was read from the fourth quarter.** Postgres returns kickoff as a naive
+timestamp stored in UTC; DuckDB reads naive values in its SESSION zone. On a machine in
+America/Chicago the 00:20 cutoff became 05:20 UTC, so "the last quote before kickoff" was
+an in-game price of yes 0.00/1.00 — on every one of 3,202 grades, mean CLV +16.5c. CI runs
+in UTC, where the identical code is right by accident, which is how it hid. `closing_quotes`
+now binds aware UTC into a TIMESTAMPTZ column and pins the session zone; `clv.closing_price`
+had the same latent bug and its test missed it only because it passed an aware datetime.
+Tests now force Chicago and Tokyo sessions.
+
+**One game was about to count as a validated track record.** The grader graded every signal
+from every hourly run: ~20 per market, 3,202 from one game. The tier promotes at 50 and 200
+settled contracts, so a single evening — with the +16.5c bug on top — would have promoted
+families to VALIDATED on the next projection run. It did not reach users (the last run
+predated the grading; every tier written reads UNVALIDATED) and those rows were removed.
+Grading is now one decision per market: the last signal written before kickoff.
+
+**Every under was charged a phantom spread.** A NO entry is stored as `1 - no_ask`, which on
+Kalshi is the yes BID, and it was closed against the yes ASK. A flat market therefore scored
+as a loss of one full spread on every under: median CLV exactly -1.00c on a night of 1c
+books, which is precisely the tier's pass mark. NO positions now close on the yes bid.
+
+After the fixes: 161 markets graded, each with a real pre-kickoff close and a settlement,
+none at 0 or 1; CLV mean +0.78c, median 0.00.
+
+Also recorded: the backfill's `status="settled"` query is correct. Kalshi rejects
+`status=finalized` as a filter even though finalized markets report that status; the
+archive on this machine lacked results only because CI writes them to Blob, which is not
+configured locally.
