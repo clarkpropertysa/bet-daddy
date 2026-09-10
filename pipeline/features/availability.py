@@ -57,6 +57,19 @@ PRIOR = {
 #: reasons that never reach a Wednesday practice report.
 DEFAULT_HEALTHY = 0.02
 
+#: THIS PROBABILITY IS NOT PART OF WHAT A MARKET SETTLES ON. Kalshi's rules on every
+#: player prop: "If <player> is active but never takes a snap, the market settles to
+#: the fair market price before game start." A no-show is a push. It was being
+#: simulated as a zero -- a win for every under and a loss for every over -- which
+#: handed each under on the board DEFAULT_HEALTHY's two points for nothing, and would
+#: hand a Questionable player's under forty. Settlement is therefore priced conditional
+#: on a snap, which is also exactly what the 2025 backtest scores and finds calibrated.
+#:
+#: What this probability does decide is whether an edge will be COLLECTED: a player
+#: this likely to sit is refused rather than priced, at the same threshold as an
+#: unresolved teammate (features/room.py).
+OWN_RISK_REFUSE = 0.25
+
 SKILL = ("QB", "RB", "WR", "TE")
 
 

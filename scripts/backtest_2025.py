@@ -143,11 +143,25 @@ def candidates(min_week: int) -> dict:
                 or (kind == "pass" and n >= 150):
             eligible[kind].add(pid)
 
+    # QUARTERBACKS ARE SCORED ONLY AS STARTERS. "Took a snap" admits a backup kneeling
+    # out a blowout or mopping up two series, whose near-zero line was scored against a
+    # starter's projection -- a market no exchange lists. The starter is the passer on
+    # his team's first pass play: announced before kickoff, so knowable, and a starter
+    # hurt in the first quarter still counts, because that risk is real.
+    starters = {(pid, int(wk)) for pid, wk in con.execute(f"""
+        select arg_min(passer_player_id, play_id), any_value(week)
+        from read_parquet('{PBP}')
+        where season_type='REG' and passer_player_id is not null and posteam is not null
+        group by game_id, posteam
+    """).fetchall()}
+
     out = defaultdict(list)
     for pid, wk in played:
         if int(wk) < min_week:
             continue
         for kind in ("rec", "rush", "pass"):
+            if kind == "pass" and (pid, int(wk)) not in starters:
+                continue
             if pid in eligible[kind]:
                 out[(kind, pid)].append(int(wk))
     return out
@@ -230,8 +244,11 @@ def main():
     for (kind, pid), weeks in cands.items():
         played_weeks[pid].update(weeks)
 
-    model_pairs, base_pairs, weeks_of, zs = [], [], [], []
+    model_pairs, base_pairs, weeks_of, zs, mk_of = [], [], [], [], []
     by_market = defaultdict(lambda: ([], []))
+    # (actual - mean) / simulated sd, once per player-game: ~1.0 if the width is right
+    resid = defaultdict(list)
+    sims = defaultdict(list)          # (projected mean, simulated sd, actual)
     skipped = defaultdict(int)
     hist: dict = defaultdict(list)
 
@@ -260,6 +277,8 @@ def main():
                 h = [x[key] for x in prior]
                 mu = out.get("mean", 0.0)
                 sd = out.get("stdev", 0.0) or 1.0
+                resid[market].append((got - mu) / sd)
+                sims[market].append((mu, sd, got))
                 for s in GRIDS[market]:
                     p = out["p_over_by_strike"].get(str(s))
                     if p is None:
@@ -268,6 +287,7 @@ def main():
                     model_pairs.append((p, hit))
                     weeks_of.append(wk)
                     zs.append((s - mu) / sd)
+                    mk_of.append(market)
                     base_pairs.append((empirical_p(h, s), hit))
                     by_market[market][0].append((p, hit))
                     by_market[market][1].append((empirical_p(h, s), hit))
@@ -390,6 +410,52 @@ def main():
         mp, bp = by_market[mk]
         m, b = brier(mp), brier(bp)
         print(f"  {mk:12} {len(mp):7,} {m:8.4f} {b:10.4f}  {(b-m)/b:+.1%}")
+
+    # WIDTH, PER MARKET. A pooled band table can hide a market whose distribution is
+    # too wide behind others that are too narrow -- which is exactly how a pooled
+    # variance fix got rejected while a quarterback's passing spread stayed wrong.
+    print(f"\nwidth by market: sd of (actual - mean) / simulated sd  (1.00 = right width)")
+    for mk in sorted(resid):
+        r = np.asarray(resid[mk])
+        print(f"  {mk:12} n={len(r):5,}  sd={r.std(ddof=1):.3f}  "
+              f"mean={r.mean():+.3f}  |z|>1.5: {np.mean(np.abs(r) > 1.5):.3f} "
+              f"(normal 0.134)")
+    # SIGNED. An under on a line far below the projection (Maye 174.5 against ~230) and
+    # an over far above it are different bets; an unsigned band averages them together.
+    print(f"\n  {'market':12} {'mean proj':>10} {'mean actual':>12} {'avg sim sd':>11} "
+          f"{'sd of error':>12}")
+    for mk in sorted(sims):
+        s = np.asarray(sims[mk])
+        print(f"  {mk:12} {s[:,0].mean():10.1f} {s[:,2].mean():12.1f} "
+              f"{s[:,1].mean():11.1f} {(s[:,2]-s[:,0]).std(ddof=1):12.1f}")
+
+    print(f"\nsigned: strike relative to projection, P(over) predicted vs actual")
+    signed = ((-99, -1.5, "strike < -1.5 sd"), (-1.5, -0.5, "-1.5 to -0.5 sd"),
+              (-0.5, 0.5, "-0.5 to +0.5 sd"), (0.5, 1.5, "+0.5 to +1.5 sd"),
+              (1.5, 99, "strike > +1.5 sd"))
+    for mk in sorted(set(mk_of)):
+        print(f"  {mk}")
+        for lo, hi, lab in signed:
+            g = [(p, o) for (p, o), z, m in zip(model_pairs, zs, mk_of)
+                 if m == mk and lo <= z < hi]
+            if len(g) < 30:
+                continue
+            pr = sum(p for p, _ in g) / len(g)
+            ac = sum(o for _, o in g) / len(g)
+            print(f"    {lab:18} {len(g):6,} {brier(g):8.4f} {pr:10.3f} {ac:8.3f}  "
+                  f"{ac-pr:+.3f}")
+    for mk in sorted(set(mk_of)):
+        print(f"\n  {mk}: by how far the strike sits from the projection")
+        for lo, hi, lab in ((0.0, 0.5, "within 0.5 sd"), (0.5, 1.0, "0.5-1.0 sd"),
+                            (1.0, 1.5, "1.0-1.5 sd"), (1.5, 99, "beyond 1.5 sd")):
+            g = [(p, o) for (p, o), z, m in zip(model_pairs, zs, mk_of)
+                 if m == mk and lo <= abs(z) < hi]
+            if len(g) < 30:
+                continue
+            pr = sum(p for p, _ in g) / len(g)
+            ac = sum(o for _, o in g) / len(g)
+            print(f"    {lab:16} {len(g):6,} {brier(g):8.4f} {pr:10.3f} {ac:8.3f}  "
+                  f"{ac-pr:+.3f}")
 
 
 if __name__ == "__main__":

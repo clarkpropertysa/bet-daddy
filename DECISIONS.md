@@ -2905,3 +2905,87 @@ Also recorded: the backfill's `status="settled"` query is correct. Kalshi reject
 `status=finalized` as a filter even though finalized markets report that status; the
 archive on this machine lacked results only because CI writes them to Blob, which is not
 configured locally.
+
+## The database was four days from its plan limit, and nothing was reading what filled it
+
+Neon began emailing about the monthly usage limit. The emails themselves were not reachable
+from here, so the cause was read off the database: it stood at 427 MB against the free plan's
+512 MB and was growing 15-50 MB a day. `Signal` was 352 MB of it, and 269 MB of that was one
+column: `reason`, the full rationale as JSON, about 2.3 KB per row.
+
+Every live run writes a Signal for every quoted market, so each ladder was stored once per
+run — 112,618 rows for 2,659 markets after one week. No reader wants a superseded run: the
+board, Top Picks, the slate and the player pages all scope to max(runTs); the grader wants the
+last pre-kickoff signal per market; the Track Record wants graded rows; settled mode needs
+only that a ticker appears at all, so it does not re-emit it daily.
+
+`pipeline/model/prune.py` keeps exactly those, per market: the newest pre-kickoff signal, the
+first post-kickoff one, anything with a SignalResult, and everything in the board's run. Every
+ticker keeps at least one row. A projection is only read through a Signal join, so orphaned
+projections go too. Measured dry run: 109,959 of 112,618 rows. NOT YET RUN on production:
+the deletion is irreversible, so it waits for an explicit go-ahead. Once approved it runs
+after each project-live repricing, without `|| true`, because a pruner failing silently is
+a database filling up.
+Routine runs use plain VACUUM, which stops the growth; a one-off `--full` gives the space back.
+
+The selection SQL runs unchanged on DuckDB, so `tests/test_prune.py` checks it on the cases
+that matter: a market the newest run refused (its last signal is still the grader's), a
+graded market repriced later, settled-mode re-emissions, and rows written before kickoff was
+stored.
+
+Compute was checked as well: about 40 pipeline runs a day, 10 hours of job time a week in
+total. Each wakes the database, but that is modest next to storage, which was the limit in
+sight.
+
+## The Maye pick, measured properly: the width was right, the harness and the zero were not
+
+Asked to fix the "Maye variance problem" with the 2025 backtest as the check. The backtest
+does not support a variance fix, and three things turned up that were actually wrong.
+
+**The harness scored backup quarterbacks against starters' projections.** It admitted any
+eligible passer who took a snap, so a backup kneeling out a blowout was scored as a
+near-zero line against a starter-sized projection — a market no exchange lists. That
+alone made passing yards look biased HIGH (mean z -0.179) and too narrow (width 1.078).
+Quarterbacks are now scored only as starters: the passer on his team's first pass play,
+announced before kickoff, and a starter hurt in the first quarter still counts.
+
+With that fixed, starting quarterbacks, weeks 8-18 of 2025 (279 games):
+
+    width, sd of (actual - mean) / simulated sd      0.972   (1.00 = right)
+    mean z                                           -0.076
+    model P(under 174.5) >= 0.25   n=163   predicted 0.331   actual 0.337
+    top third by prior yards/game, P(under) >= 0.20
+                                   n= 51   predicted 0.239   actual 0.235
+
+That is the Maye bet — an under on a low line for a productive quarterback — and the
+model is calibrated on it. The top tier is projected 240.3 against an actual 243.6 after
+averaging 257.4 beforehand, so the mean shrinkage is doing its job rather than
+over-correcting good passers.
+
+**Every structural variance fix fails on measurement before it reaches the backtest.**
+Attempt dispersion: Maye's 2.58 is the league median (2.42). Volume/efficiency
+correlation: within-player elasticity of yards per attempt to attempts, starters only,
+is -0.03, +0.19, 0.00, -0.13 across 2022-25 and +0.03 pooled over 2022-24 — nothing
+stable to model; the -0.15 seen earlier came from a 15-attempt filter that dropped the
+short games. Game-to-game spread persists at r = 0.12. Maye's consistency in 2025
+(sd 49.6, r(attempts, ypa) = -0.73) is real in the record and not predictive of 2026.
+
+So the width stays. Maye's under lost by under 25 yards; one outcome, on a bet type the
+model gets right over 163 comparable games.
+
+**What WAS wrong: a no-show was scored as a zero.** Kalshi's rules on every player prop:
+"If Drake Maye is active but never takes a snap, the market settles to the fair market
+price before game start." A no-show is a push. The simulator put p_inactive at exactly
+zero yards — a win for every under — so every healthy player's under carried
+DEFAULT_HEALTHY's two points for nothing (Maye 0.299 conditional, 0.313 shown), and a
+Questionable player's would have carried about forty once injury designations flow.
+Settlement is now priced conditional on a snap, which is exactly what the backtest scores.
+A player at or above OWN_RISK_REFUSE (0.25, the teammate threshold) is refused rather
+than priced: his edge mostly goes uncollected. The run still counts `with_p_inactive`,
+because it reports whether the availability layer is being reached, not applied.
+
+The backtest now also prints width by market, the signed band table, and mean projection
+against mean actual. Receptions and receiving yards run slightly over-confident on overs
+below the projection (-0.05 to -0.06); rushing is under-projected (mean z +0.19, width
+1.40). Both are recorded here and left for the post-Week-1 per-snap rebuild rather than
+patched now.

@@ -28,7 +28,11 @@ from pipeline.backtest.point_in_time import (
     LeakageError,
     assert_features_predate_kickoff,
 )
-from pipeline.features.availability import build_inactivity_table, status_lookup
+from pipeline.features.availability import (
+    OWN_RISK_REFUSE,
+    build_inactivity_table,
+    status_lookup,
+)
 from pipeline.features.wind import describe as describe_wind, wind_effect
 from pipeline.features.room import (
     build_rooms,
@@ -771,6 +775,15 @@ def run(
                             room_describe(st.position, _mate[0], _mate[1]))
                         skip("teammate_availability_unresolved"); continue
 
+            # A no-show settles at the pre-game price, so the edge on a player this
+            # likely to sit mostly goes uncollected. See availability.OWN_RISK_REFUSE.
+            if p_inactive >= OWN_RISK_REFUSE:
+                refusals[(xr["gsis_id"], parts[1], "own_availability_unresolved")] = (
+                    f"{p_inactive:.0%} likely to take no offensive snap. If he does not "
+                    "play, the market settles at its pre-game price, so the edge would "
+                    "mostly go uncollected")
+                skip("own_availability_unresolved"); continue
+
             try:
                 pi = load_player_inputs(pbp_path, xr["gsis_id"],
                                         position=xr.get("position"))
@@ -913,21 +926,21 @@ def run(
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.targets_per_game, adj,
                                       dispersion=pi.target_dispersion,
-                                      p_inactive=p_inactive)
+                                      p_inactive=0.0)  # settles on a snap
                 out = project_receiving_yards(vp, pi.catch_rate, pi.yards_per_catch,
                                               [strike], efficiency_multiplier=eff_mult, iterations=iterations, seed=seed)
             elif model == "receptions":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.targets_per_game, adj,
                                       dispersion=pi.target_dispersion,
-                                      p_inactive=p_inactive)
+                                      p_inactive=0.0)  # settles on a snap
                 out = project_receptions(vp, pi.catch_rate, [strike],
                                          iterations=iterations, seed=seed)
             elif model == "rushing_yards":
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       baseline_override or pi.carries_per_game, adj,
                                       dispersion=pi.carry_dispersion,
-                                      p_inactive=p_inactive)
+                                      p_inactive=0.0)  # settles on a snap
                 out = project_rushing_yards(vp, pi.yards_per_carry, [strike],
                                             iterations=iterations, seed=seed)
             elif model == "anytime_td":
@@ -971,7 +984,7 @@ def run(
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       pi.attempts_per_game, adj,
                                       dispersion=pi.attempt_dispersion,
-                                      p_inactive=p_inactive)
+                                      p_inactive=0.0)  # settles on a snap
                 out = project_passing_yards(vp, pi.completion_rate,
                                             pi.yards_per_completion, [strike], efficiency_multiplier=eff_mult,
                                             iterations=iterations, seed=seed)
@@ -979,7 +992,7 @@ def run(
                 vp = VolumeProjection(xr["gsis_id"], m["market_type"],
                                       pi.attempts_per_game, adj,
                                       dispersion=pi.attempt_dispersion,
-                                      p_inactive=p_inactive)
+                                      p_inactive=0.0)  # settles on a snap
                 out = project_passing_tds(vp, pi.pass_td_rate, [strike],
                                           iterations=iterations, seed=seed)
 
