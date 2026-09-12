@@ -3212,3 +3212,48 @@ too, and their rushing inputs are rebuilt from the same games.
 The diagnosis was right and the general fix was wrong. Worth stating plainly: the
 mechanism was sound, the story was good, and the measurement still rejected two thirds of
 it.
+
+## Injury exits at every position: the sharper rule was built, measured and rejected
+
+Pushed back on "quarterbacks only" -- injury exits happen to receivers and backs too, and
+that is right. The earlier result was never evidence that they do not; it was evidence
+that a SHARE THRESHOLD cannot identify one. So the rule was sharpened rather than argued
+about: a game counts as an exit when the player's share was far below his own median AND
+he then missed his team's very next game. Burrow played 30% in week 2 and was gone until
+week 13; a receiver at 35% in a blowout is back the following Sunday.
+
+It separates the cases cleanly on real data. Across skill positions it flags 188 of 657
+low-share games (WR 75, TE 44, QB 35, RB 34) and spares 469. Kalif Raymond, who the blunt
+rule flagged five times, is flagged zero times. Burrow's week 2 is still caught. Two cases
+go deliberately unflagged as unknowable rather than negative: no next game in view, and a
+game the player did play through. Point-in-time, a low-share game in week N-1 has no next
+game to check, which is the honest answer standing at week N.
+
+**And the 2025 replay rejected it anyway.**
+
+    weeks 8-18            baseline   share-rule,   share-rule,   exit-rule,
+                                     all pos       QB only       all pos
+    Brier, overall         0.1466      0.1470        0.1465        0.1467
+    pass_yds               0.1775      0.1758        0.1758        0.1766
+    pass_tds               0.1617      0.1611        0.1611        0.1615
+    rec_yds                0.1424      0.1429        0.1424        0.1426
+    receptions             0.1486      0.1495        0.1486        0.1488
+    rush_yds               0.1395      0.1397        0.1394        0.1393
+
+Receiving gets WORSE even when only genuine exits are removed -- smaller than under the
+blunt rule (0.1426 against 0.1429) but still the wrong side of baseline. And passing gains
+less than the quarterback-only version, because requiring a missed next game drops exits
+that the share test alone was right to catch.
+
+The reading: a receiver's cut-short game still carries real information about his role,
+and 1,397 receiver-games is a thin sample in which to chase a 0.0002 difference. Nothing
+here justifies widening the filter, and nothing here says the principle is wrong -- only
+that acting on it costs more than it returns with the evidence available.
+
+So production keeps the quarterback-only share rule, and `exit_games` is DELETED rather
+than left dormant behind a flag. Section D: an unused path in this codebase has come back
+as a bug every time one was left lying around -- `features/spread.py` went the same way
+after the variance fix failed the same test.
+
+Revisit when there is a second season of snap data, which roughly doubles the receiver
+sample the question actually depends on.
