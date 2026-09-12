@@ -56,6 +56,17 @@ jobs:
           # season opens nflverse publishes nothing and the job writes zero rows.
           uv run python -m pipeline.ingest.sync_injuries --season 2026 || true
 
+      # THE GRADER READS THE ARCHIVE, AND NOTHING EVER DOWNLOADED IT. blob.py could
+      # only PUT, no workflow fetched the artifact, and the grade step below ended in
+      # `|| true` -- so every CI grading run died on an empty glob
+      # ("No files found that match the pattern data/archive/market_snapshots/**") and
+      # reported success. Every graded row in the Track Record came from a laptop.
+      - name: Fetch the market archive the grader reads
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m pipeline.ingest.fetch_archive
+
       # Settled mode only. This run exists to grow the CLV/calibration sample from
       # markets that have already resolved; it is deduplicated by market ticker, so
       # running it daily does not count one decision thirty times. The BOARD is fed
@@ -69,10 +80,12 @@ jobs:
             --mode settled \
             --depth data/raw/nflverse/depth_charts_2026.parquet || true
 
+      # NOT `|| true`. The Track Record is the one number this project refuses to
+      # soften, and a grader that fails silently leaves it frozen while looking fine.
       - name: Grade emitted signals on CLV and settlement
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: uv run python -m pipeline.backtest.grade || true
+        run: uv run python -m pipeline.backtest.grade
 
       - name: Verify known-correct values
         run: uv run python -m pytest tests/ -q

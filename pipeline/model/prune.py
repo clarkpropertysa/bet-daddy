@@ -129,7 +129,12 @@ def prune(conn, now: datetime, dry_run: bool = False, batch: int = BATCH,
         board_ts = cur.fetchone()[0]
         cur.execute('select "signalId" from "SignalResult"')
         graded = {r[0] for r in cur.fetchall()}
-        cur.execute('select distinct "marketTicker" from "Signal"')
+        # ONLY MARKETS THAT COULD HAVE A DELETABLE ROW. A market holding one row
+        # cannot: that row is either the grader's pre-kickoff signal or settled mode's
+        # marker, and both are kept. Walking all 2,943 tickers regardless cost ten
+        # minutes of round trips on an hourly job with nothing to do -- this grouped
+        # scan of the (marketTicker, runTs) index replaces it with one query.
+        cur.execute('select "marketTicker" from "Signal" group by 1 having count(*) > 1')
         tickers = [r[0] for r in cur.fetchall()]
     conn.commit()
 
