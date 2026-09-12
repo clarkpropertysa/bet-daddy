@@ -9,6 +9,7 @@ of fake number that survives into the UI and destroys the point of the tool.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import duckdb
@@ -55,9 +56,32 @@ def load_player_inputs(
     through_week: int | None = None,
     min_games: int = MIN_GAMES,
     position: str | None = None,
+    exclude_games: Iterable[str] | None = None,
 ) -> PlayerInputs:
     con = duckdb.connect()
     wk = f"and week < {int(through_week)}" if through_week is not None else ""
+
+    # GAMES HE BARELY PLAYED ARE NOT GAMES, for a per-game rate. See features/snaps.py:
+    # Burrow's week-2 concussion game (30% of snaps) was averaged in as a full start and
+    # cost his projection 20 yards. The exclusion applies to the per-GAME counts only --
+    # the efficiency bootstraps below still draw on every play he ran, because yards per
+    # completion is a per-play rate that a short appearance does not bias.
+    #
+    # If dropping them would leave too little history the player keeps every game: a
+    # thin, slightly wrong baseline beats refusing to price him at all, and `min_games`
+    # already governs whether he is priced.
+    game_filter = ""
+    if exclude_games:
+        played = [r[0] for r in con.execute(f"""
+            select distinct game_id from read_parquet('{pbp_path}')
+            where season_type = '{season_type}' and coalesce(two_point_attempt, 0) = 0
+              {wk}
+              and (receiver_player_id = ? or rusher_player_id = ? or passer_player_id = ?)
+        """, [player_id, player_id, player_id]).fetchall()]
+        kept = [g for g in played if g not in set(exclude_games)]
+        if len(kept) >= min_games and len(kept) < len(played):
+            ids = ", ".join("'" + g.replace("'", "''") + "'" for g in kept)
+            game_filter = f"and game_id in ({ids})"
 
     # KNEEL-DOWNS ARE OFFICIAL RUSHING ATTEMPTS, and these rates face settlement.
     #
@@ -88,16 +112,17 @@ def load_player_inputs(
         ),
         rec as (
             select game_id, count(*) t, sum(coalesce(complete_pass,0)) c
-            from plays where receiver_player_id = ? group by 1
+            from plays where receiver_player_id = ? {game_filter} group by 1
         ),
         rush as (
-            select game_id, count(*) a from plays where rusher_player_id = ? group by 1
+            select game_id, count(*) a from plays
+            where rusher_player_id = ? {game_filter} group by 1
         ),
         pass as (
             select game_id, count(*) att,
                    sum(coalesce(complete_pass,0)) comp,
                    sum(coalesce(pass_touchdown,0)) tds
-            from plays where passer_player_id = ? group by 1
+            from plays where passer_player_id = ? {game_filter} group by 1
         )
         select
             (select count(*) from (

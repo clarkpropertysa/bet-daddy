@@ -26,6 +26,7 @@ from collections import defaultdict
 import duckdb
 import numpy as np
 
+from pipeline.features.snaps import applies_to as snap_filter_applies, truncated_games
 from pipeline.model.features_for_projection import InsufficientHistory, load_player_inputs
 from pipeline.model.simulate import (
     VolumeProjection,
@@ -258,8 +259,15 @@ def main():
             if wk not in weeks:
                 continue
             try:
-                pi = load_player_inputs(PBP, pid, through_week=wk,
-                                        position=pos.get(pid))
+                # Point-in-time: the median and the games it judges both stop at
+                # week N, so nothing from the week being projected leaks in.
+                pi = load_player_inputs(
+                    PBP, pid, through_week=wk, position=pos.get(pid),
+                    exclude_games=(
+                        truncated_games(SNAPS, PLAYERS, pid, through_week=wk)
+                        if snap_filter_applies(pos.get(pid)) else None
+                    ),
+                )
             except InsufficientHistory:
                 skipped["insufficient_history"] += 1
                 continue

@@ -34,6 +34,7 @@ from pipeline.features.availability import (
     status_lookup,
 )
 from pipeline.features.wind import describe as describe_wind, wind_effect
+from pipeline.features.snaps import applies_to as snap_filter_applies, truncated_games
 from pipeline.features.room import (
     build_rooms,
     describe as room_describe,
@@ -785,8 +786,17 @@ def run(
                 skip("own_availability_unresolved"); continue
 
             try:
-                pi = load_player_inputs(pbp_path, xr["gsis_id"],
-                                        position=xr.get("position"))
+                pi = load_player_inputs(
+                    pbp_path, xr["gsis_id"], position=xr.get("position"),
+                    # Games he barely played are not games, for a per-game rate.
+                    # Burrow's week-2 concussion (30% of snaps) was averaged in as a
+                    # full start and cost his projection 20 yards. features/snaps.py.
+                    exclude_games=(
+                        truncated_games(snaps_path, players_path, xr["gsis_id"])
+                        if snaps_path and players_path
+                        and snap_filter_applies(xr.get("position")) else None
+                    ),
+                )
             except InsufficientHistory:
                 skip("insufficient_history"); continue
 

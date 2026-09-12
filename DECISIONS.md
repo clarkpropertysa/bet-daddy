@@ -3165,3 +3165,50 @@ information and is only justified when the measurement says the pick is wrong, n
 imprecise. Rushing cleared that bar; nothing else does. The low-volume overstatement is
 recorded here and is a target for the per-snap rebuild, which addresses the same root
 cause -- volume projected low for players with little history.
+
+## A game he barely played is not a game: the truncated-game filter, quarterbacks only
+
+Joe Burrow, UNDER 225 passing yards, +20.7c, the largest non-rushing edge on the Week 2
+board. His 2025: a full week 1, then THIRTY PERCENT of the snaps in week 2 before leaving
+injured, ten weeks out, then six healthy starts. Averaged flat that is 34.5 attempts and
+226 yards a game. His six healthy starts averaged 39.2 and 270. The market was pricing a
+healthy quarterback at 27%; the model was pricing one who got hurt in week 2 and could
+not tell the difference.
+
+Re-simulated on his healthy starts alone: mean 230 -> 248, sd 83.5 -> 66.3, P(under 225)
+0.513 -> 0.380. The truncated games hurt twice over -- they drag the mean down AND inflate
+the spread, and both errors push toward the under.
+
+`features/snaps.py` excludes games below half a player's OWN median snap share (a WR3 at
+38% is doing his job; a quarterback at 30% left), point-in-time so the median and the
+games it judges both stop at the projected week. It applies to the per-GAME counts only:
+yards per completion is a per-PLAY rate that a short appearance does not bias, so the
+bootstrap still draws on every play. If dropping games would take a player under the
+history floor he keeps all of them.
+
+**Applied to every position it made the model WORSE, and that is the useful result.**
+
+    2025 replay, weeks 8-18        baseline   all positions   QB only
+    Brier, overall                  0.1466       0.1470        0.1465
+    pass_yds                        0.1775       0.1758        0.1758
+    pass_tds                        0.1617       0.1611        0.1611
+    rec_yds                         0.1424       0.1429        0.1424
+    receptions                      0.1486       0.1495        0.1486
+    rush_yds                        0.1395       0.1397        0.1394
+    pass_yds width (1.00 = right)    0.972        1.002         1.002
+
+A quarterback is all-or-nothing: he takes the snaps or he left, so a game at 30% of his
+median IS an exit. A receiver's share swings with role and game script, so his low games
+are mostly real low-usage games -- a blowout, a heavy-run plan, a rotation. Dropping those
+keeps only the games that went well, which is selecting on the outcome, and the replay
+priced it exactly that way: every receiving projection rose and every receiving number got
+worse. The same error the harness itself had for backup quarterbacks, one level down.
+
+So the filter is `TRUNCATION_POSITIONS = {"QB"}`, pinned by a test. Receiving and rushing
+land on the baseline to four decimals, which is the check that the gate does nothing
+outside it. Rushing moves a whisker (0.1395 -> 0.1394) because quarterbacks carry the ball
+too, and their rushing inputs are rebuilt from the same games.
+
+The diagnosis was right and the general fix was wrong. Worth stating plainly: the
+mechanism was sound, the story was good, and the measurement still rejected two thirds of
+it.
