@@ -3070,3 +3070,44 @@ Also measured here: the prune now visits only markets holding more than one row.
 with one row cannot have a deletable one -- it is either the grader's pre-kickoff signal
 or settled mode's marker -- and walking all 2,943 every hour cost ten minutes of round
 trips on a job with nothing to do.
+
+## Rushing picks are withheld from the recommendation surfaces
+
+Five of the ten Top Picks for Week 2 were rushing unders, and positive-edge rushing rows
+ran 255 unders to 132 overs. Three independent measurements say the model is wrong in
+exactly that direction:
+
+**The projection cuts the highest-volume backs hardest.** Board-wide the median back is
+projected at 0.94x his own 2025 per-game average, but the workhorses lose 23-30 yards a
+game -- Cook -29.5, Taylor -28.3, Achane -28.2, Henry -25.2, Bijan -23.2, Gibbs -15.1.
+Every one of those becomes an under.
+
+**A 2025 replay of 615 running-back games says the cut is too deep.**
+
+    prior ypg tier     n    prior    proj   actual   proj-prior    err   z sd
+    low              205     19.7    21.2     28.7         +1.5   +7.5   1.75
+    mid              205     41.3    42.2     44.7         +0.9   +2.5   1.27
+    high             205     73.3    66.8     70.2         -6.5   +3.5   1.26
+    all              615     44.7    43.4     47.9         -1.4   +4.5   1.46
+
+The actual landed ABOVE the projection in 51.2% of high-volume-back games. And the width
+is the worst in the model: 1.26 to 1.75 where 1.00 is right, so the confidence on those
+unders is overstated on top of the mean being low.
+
+**The money agrees.** `rush_yds` graded at -8.06c per contract over 64 settled bets, the
+only family losing money -- while its CLV of +0.25c was positive enough to earn a
+PROVISIONAL badge. The badge and the P&L disagree, because promotion reads CLV and never
+looks at realised return. That is defensible on 64 bets, but it is not a reason to put
+these in front of a reader as picks.
+
+So `web/src/lib/suppressed.ts` withholds `rush_yds` from Top Picks and from the Slate's
+Top edges. Nothing is deleted: /board still lists every rushing strike with its edge, the
+player pages still show the projection, and the Why panel still explains it. What is
+withheld is the recommendation, and the count is stated on the page with the reason
+rather than quietly reducing the list -- a board that silently drops half its rows reads
+as "the model found nothing".
+
+This is a blunt instrument and deliberately so. The honest fix is the per-snap volume
+rebuild already scheduled after Week 1, which addresses WHY the volume projection runs
+low rather than hiding what it produces. The suppression lifts when the backtest shows
+the rebuilt model projecting rushing without the bias -- measured, not merely finished.

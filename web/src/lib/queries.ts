@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { computeEdge, pOverAtStrike } from "@/lib/edge";
 import { getLiveQuotes, type LiveQuoteBook } from "@/lib/livePrices";
 import { eventMatchesGame, tickerMatchesGame } from "@/lib/markets";
+import { isSuppressed } from "@/lib/suppressed";
 
 /** Same threshold the Python job applies. Recomputed here because a live price can
  *  move a signal across it in either direction, and a stale flag is worse than none. */
@@ -549,7 +550,10 @@ async function nextSlateGames(): Promise<SlateGame[]> {
  * and his receiving yards are separately mispriced; those are two claims.
  */
 export async function getTopEdges(limit = 6) {
-  return prisma.$queryRaw<
+  // Over-fetch, then drop the withheld families and cut to `limit`. Filtering after a
+  // `limit ${limit}` would have returned four rows when two were rushing, which reads
+  // as "the model found nothing" rather than "these are held back".
+  const rows = await prisma.$queryRaw<
     { player: string; marketType: string; strike: number | null; side: string;
       edgeCentsNet: number; tier: string; headshotUrl: string | null }[]
   >`
@@ -584,8 +588,9 @@ export async function getTopEdges(limit = 6) {
     left join "Player" p on p.id = b.pid
     where b.rn = 1
     order by b."edgeCentsNet" desc
-    limit ${limit}
+    limit ${limit * 5}
   `;
+  return rows.filter((r) => !isSuppressed(r.marketType)).slice(0, limit);
 }
 
 

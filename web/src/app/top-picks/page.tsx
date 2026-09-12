@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { TopPickList } from "@/components/TopPickList";
 import { StaleBanner } from "@/components/StaleBanner";
 import { getJobHealth, getNextSlate, getProjectionBoard } from "@/lib/queries";
+import { isSuppressed, SUPPRESSED_LABEL, SUPPRESSED_WHY } from "@/lib/suppressed";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,16 @@ export default async function TopPicksPage() {
       r.spreadCents > MAX_SPREAD_CENTS,
   ).length;
 
+  /** Clears every gate on its own merits, and is withheld anyway. See lib/suppressed. */
+  const withheld = rows.filter(
+    (r) =>
+      r.edgeCentsNet >= MIN_EDGE_CENTS &&
+      !r.implausible &&
+      r.spreadCents !== null &&
+      r.spreadCents <= MAX_SPREAD_CENTS &&
+      isSuppressed(r.marketType),
+  ).length;
+
   const props = rows
     .filter(
       (r) =>
@@ -50,7 +61,11 @@ export default async function TopPicksPage() {
         // A null spread means we could not measure the book, which is not the same as
         // a tight one and must not pass silently.
         r.spreadCents !== null &&
-        r.spreadCents <= MAX_SPREAD_CENTS,
+        r.spreadCents <= MAX_SPREAD_CENTS &&
+        // A family the measurements say the model gets wrong is not a pick, however
+        // large its edge looks -- and the largest edges on this board were exactly
+        // those. Still listed on /board, just not recommended here.
+        !isSuppressed(r.marketType),
     )
     .slice(0, 10);
 
@@ -136,6 +151,7 @@ export default async function TopPicksPage() {
           <span className="eyebrow">
             one row per projection · {props.length} clearing the bar
             {wideBooks > 0 ? ` · ${wideBooks} held back on a wide book` : ""}
+            {withheld > 0 ? ` · ${withheld} held back on ${SUPPRESSED_LABEL}` : ""}
           </span>
         </div>
 
@@ -161,6 +177,17 @@ export default async function TopPicksPage() {
           price to disagree with. Volume is shown so a quote nobody has taken is
           distinguishable from one hundreds of people have.
         </p>
+        {withheld > 0 ? (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
+            <strong className="font-medium text-ink-2">
+              {withheld} {SUPPRESSED_LABEL} pick{withheld === 1 ? "" : "s"} held back.
+            </strong>{" "}
+            {SUPPRESSED_WHY}{" "}
+            <Link href="/board" className="text-steel underline-offset-2 hover:underline">
+              Still on the board →
+            </Link>
+          </p>
+        ) : null}
         <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
           The projection is the model&apos;s central estimate for the whole game; the
           line beside it is whichever quoted strike that estimate disagrees with most
