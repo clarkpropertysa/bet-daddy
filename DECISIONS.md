@@ -3111,3 +3111,57 @@ This is a blunt instrument and deliberately so. The honest fix is the per-snap v
 rebuild already scheduled after Week 1, which addresses WHY the volume projection runs
 low rather than hiding what it produces. The suppression lifts when the backtest shows
 the rebuilt model projecting rushing without the bias -- measured, not merely finished.
+
+## The other families were checked for rushing's bias, and only rushing has it
+
+Asked whether the rest of the board carries the same error that got rushing withheld.
+Ran the same two tests on every family.
+
+**Projection against the player's own 2025 rate, across the live board:**
+
+    receptions  n=110  median 1.01x   below own rate 53/110
+    rec_yds     n=113  median 1.01x   below own rate 54/113
+    pass_yds    n= 26  median 1.04x   below own rate 10/26
+    pass_tds    n= 26  median 1.01x   below own rate 12/26
+
+Rushing was the outlier at 0.94x with the workhorses cut 23-30 yards a game. Everything
+else sits on the player's own rate with the split above/below near even.
+
+**Tier replay, 1,397 receiver-games from 2025:**
+
+    receptions   tier   prior   proj  actual    err   z sd
+    low                  2.21   2.33    2.45  +0.12   1.19
+    mid                  3.32   3.38    3.03  -0.35   1.05
+    high                 5.17   5.04    4.60  -0.44   1.00
+
+    rec_yds      low    20.22  22.04   24.73  +2.70   1.39
+                 mid    36.00  37.54   33.58  -3.96   0.97
+                 high   63.76  61.63   57.17  -4.45   1.01
+
+At mid and high volume the bias runs the OPPOSITE way to rushing: the model
+over-projects, so unders there are if anything undervalued. Only the low tier tilts the
+way rushing did -- projection low, distribution too narrow -- and the magnitudes are a
+different order: rushing's low tier was 35% of its own projection, rec_yds 12%,
+receptions 5%.
+
+**That mattered because the surviving board is almost entirely unders on low-volume
+receivers**, so the decisive test was calibration restricted to those rows -- the model's
+stated P(under) against what happened:
+
+    receptions LOW    strike above proj   n=2,433   model 0.912   actual 0.898   -0.015
+                      strike near proj    n=  410   model 0.558   actual 0.524   -0.034
+    rec_yds    LOW    strike above proj   n=3,349   model 0.921   actual 0.903   -0.018
+    receptions mid+high strike below proj n=2,462   model 0.215   actual 0.275   +0.060
+    rec_yds    mid+high strike below proj n=2,584   model 0.247   actual 0.296   +0.049
+
+So a low-volume under is overstated by roughly one and a half to three points of
+probability -- on a pick shown at 79% the truth is about 77% -- which trims a couple of
+cents off a twenty-cent edge and does not change the side. Rushing, by contrast, was
+wrong on the mean by a third of the projection, worst-calibrated in width, and losing
+8.06c a contract in live grading.
+
+**Decision: no further suppression.** Withholding a family costs the reader real
+information and is only justified when the measurement says the pick is wrong, not merely
+imprecise. Rushing cleared that bar; nothing else does. The low-volume overstatement is
+recorded here and is a target for the per-snap rebuild, which addresses the same root
+cause -- volume projected low for players with little history.
