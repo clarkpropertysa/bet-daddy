@@ -3034,3 +3034,39 @@ Kept per market: the newest pre-kickoff signal (the grader's), the first post-ki
 (settled mode's dedupe marker), anything with a SignalResult, and everything in the board's
 run. `tests/test_prune.py` pins the Python decision against the SQL rule it replaces, since
 two implementations of one rule drift apart otherwise.
+
+## Grading has never run in CI, and the way it failed was to succeed
+
+Found while clearing the storage outage: `PipelineRun` showed `grade` erroring every day
+with
+
+    IOException: No files found that match the pattern
+    "data/archive/market_snapshots/**/*.parquet"
+
+The grader reads the Parquet archive to find each market's last quote before kickoff. In
+CI that archive was never present. `blob.py` could only PUT. `archive-markets` uploads a
+GitHub artifact, but no workflow downloads it. And the step read
+`uv run python -m pipeline.backtest.grade || true`, so the job went green every time.
+
+Every graded row in the Track Record -- all 161 -- came from a laptop. The Track Record
+was not wrong, but it was fed by hand while appearing automatic, which is the same class
+of error as a modelling layer that silently stops firing.
+
+`blob.py` gains `listing()` and `fetch()`, both checked against the live API rather than
+written from the docs: the list endpoint pages by cursor (`hasMore` + `cursor`), and the
+private store requires the bearer token on the DOWNLOAD as well -- a bare GET of the
+returned URL is a 403. `pipeline/ingest/fetch_archive.py` mirrors the blobs into the path
+the grader globs, skips files already present at the same size so a cached run
+re-downloads nothing, and takes `--since` to bound the fetch by `date=` partition once a
+season's archive outgrows a runner. At Week 2 the whole archive is 259 files, 35.7 MB.
+
+The `|| true` is gone from the grade step. The Track Record is the one number this
+project refuses to soften; a grader that fails silently leaves it frozen while looking
+fine. `tests/test_fetch_archive.py` pins the cursor pagination in particular -- a
+single-page listing would truncate the archive and grade against a partial history,
+which fails in the direction of looking like it worked.
+
+Also measured here: the prune now visits only markets holding more than one row. A market
+with one row cannot have a deletable one -- it is either the grader's pre-kickoff signal
+or settled mode's marker -- and walking all 2,943 every hour cost ten minutes of round
+trips on a job with nothing to do.
