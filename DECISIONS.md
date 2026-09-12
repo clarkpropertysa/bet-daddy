@@ -2989,3 +2989,48 @@ against mean actual. Receptions and receiving yards run slightly over-confident 
 below the projection (-0.05 to -0.06); rushing is under-projected (mean z +0.19, width
 1.40). Both are recorded here and left for the post-Week-1 per-snap rebuild rather than
 patched now.
+
+## The database filled up, the board stopped, and the pruner took four designs
+
+The storage ceiling was not approaching, it had arrived. `project-live` had been failing
+since 2026-09-11 14:16 with
+
+    psycopg.errors.DiskFull: could not extend file because project size limit
+    (512 MB) has been exceeded
+
+so the board served a day-old run while every hourly repricing died. `neon.max_cluster_size`
+is 512 MB exactly; the database was 489 MB, `Signal` 406 MB of it, 127,597 rows for 2,943
+markets. This is the failure the previous entry predicted four days out, and it landed the
+day before Week 2.
+
+**Three designs died before one worked, all on the same rock.** A compute at its ceiling
+restarts under sustained load -- measured at roughly one restart per thousand rows deleted,
+and it dropped a 67-row indexed SELECT as readily as a bulk statement.
+
+1. One transaction for every doomed row, then `delete from "Projection" where not exists
+   (select 1 from "Signal" ...)`. `Signal."projectionId"` carries NO INDEX, so that sweep
+   compared 127,597 projections against a 406 MB table. Connection closed, all rolled back.
+2. Batched deletes, 2,000 at a time. Each batch still re-ran a window query over every row.
+   Same death, nothing committed.
+3. Per market, using the `(marketTicker, runTs)` index -- but still deleting each market's
+   projections inline. The foreign key `Signal_projectionId_fkey` means Postgres proves no
+   signal references a projection before deleting it: one sequential scan of Signal PER ROW.
+   Died again, though committed batches survived: 127,597 -> 123,133.
+4. What works: per market, committed per batch, reconnecting whenever the compute drops the
+   connection, and SIGNALS ONLY. Projections are a separate phase that runs after the
+   signals are gone and vacuumed, once `Signal_projectionId_idx` exists and the foreign key
+   check is a lookup rather than a scan.
+
+The lesson is not "batch your deletes". It is that a foreign key with no index on the
+referencing column turns every parent delete into a full scan, and that a resumable job
+beats a fast one on infrastructure that cannot stay up for the length of a transaction.
+
+**The prune runs BEFORE the repricing, not after.** A prune that runs after the write is a
+prune that never runs on a full database -- the workflow would abort at the failing step
+and never reach it. The job's timeout went to 30 minutes because a backlogged run works
+through it market by market.
+
+Kept per market: the newest pre-kickoff signal (the grader's), the first post-kickoff one
+(settled mode's dedupe marker), anything with a SignalResult, and everything in the board's
+run. `tests/test_prune.py` pins the Python decision against the SQL rule it replaces, since
+two implementations of one rule drift apart otherwise.

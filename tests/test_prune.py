@@ -6,7 +6,7 @@ import datetime as dt
 
 import duckdb
 
-from pipeline.model.prune import doomed_sql
+from pipeline.model.prune import doomed_for_market, doomed_sql
 
 NOW = dt.datetime(2026, 9, 10, 15, 0, tzinfo=dt.timezone.utc)
 H = dt.timedelta(hours=1)
@@ -73,3 +73,29 @@ def test_every_ticker_keeps_a_row_so_settled_mode_does_not_reemit():
 def test_the_board_run_is_untouched():
     con = _db(ROWS)
     assert not {"a3"} & _doomed(con)
+
+
+def test_the_per_market_decision_matches_the_sql_it_replaces():
+    """The SQL is the specification; `doomed_for_market` is what actually runs.
+
+    Nothing scans the whole table on this database without the compute dropping the
+    connection, so the rule is applied one market at a time in Python. Two
+    implementations of one rule drift unless something pins them together.
+    """
+    con = _db(ROWS, graded=["d1"])
+    board_ts = max(r[2] for r in ROWS if r[3] is not None and r[3] > NOW)
+    by_ticker = {}
+    for i, t, run_ts, kick in ROWS:
+        by_ticker.setdefault(t, []).append((i, f"p{i}", run_ts, kick))
+
+    got = {i for rows in by_ticker.values()
+           for i, _ in doomed_for_market(rows, board_ts, {"d1"})}
+    assert got == _doomed(con)
+
+
+def test_the_projection_id_travels_with_its_signal():
+    """`Signal."projectionId"` carries no index, so the orphan sweep that used it could
+    not finish. Each doomed signal names its own projection instead."""
+    rows = [("a1", "pa1", R1, FUTURE), ("a2", "pa2", R2, FUTURE),
+            ("a3", "pa3", R3, FUTURE)]
+    assert doomed_for_market(rows, R3, set()) == [("a1", "pa1"), ("a2", "pa2")]

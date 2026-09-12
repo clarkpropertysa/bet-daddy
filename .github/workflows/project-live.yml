@@ -23,7 +23,9 @@ concurrency:
 jobs:
   project:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30, not 20: the prune now runs first, and a run that finds a large backlog
+    # (a day of outage, or a week of Sundays) works through it market by market.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -52,6 +54,19 @@ jobs:
           # ingested successfully and then failed to project, every time.
           uv run python -m pipeline.ingest.nflverse \
             --datasets pbp,players,teams --seasons 2025,2026
+
+      # BEFORE the repricing, not after. Every run writes a full board with its
+      # rationale and nothing reads a superseded one, so unpruned the table reached
+      # 406 MB of Neon's 512 MB ceiling and the repricing began failing with
+      # "DiskFull: could not extend file because project size limit (512 MB) has been
+      # exceeded" -- the board stopped updating for a day. A prune that runs after the
+      # write is a prune that never runs on a full database.
+      #
+      # Deliberately not `|| true`: a pruner failing quietly is a database filling up.
+      - name: Make room -- prune superseded signals
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m pipeline.model.prune
 
       - name: Snapshot the market and reprice the board
         env:
