@@ -103,11 +103,18 @@ export default async function SlatePage() {
                 ))}
               </ul>
             )}
+            {/* The curated view is the front door; every strike is one click further. */}
             <Link
-              href="/board"
+              href="/top-picks"
               className="display mt-3 inline-block rounded bg-steel px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-steel-700"
             >
-              Open Prop Board
+              Open Top Picks
+            </Link>
+            <Link
+              href="/board"
+              className="mt-2 block text-[11px] text-steel underline-offset-2 hover:underline"
+            >
+              Every strike →
             </Link>
           </section>
         </aside>
