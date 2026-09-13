@@ -144,30 +144,46 @@ export function PropBoard({ rows, status }: { rows: Row[]; status?: BoardStatus 
     const TOP = 20;
     const top = filtered.slice(0, TOP);
     if (top.length < 8) return null;
+
     const byGame = new Map<string, { n: number; yes: number; ticker: string }>();
+    let overYes = 0;
     for (const r of top) {
       const key = r.marketTicker.split("-")[1] ?? "?";
       const e = byGame.get(key) ?? { n: 0, yes: 0, ticker: r.marketTicker };
       e.n += 1;
-      if (r.side === "yes") e.yes += 1;
+      if (r.side === "yes") { e.yes += 1; overYes += 1; }
       byGame.set(key, e);
     }
-    // The game holding the most of those rows -- not the biggest same-side block,
-    // which flattered a five-row game into sounding like the whole board.
+
+    // The game holding the most of these rows. The floor is deliberately low: the
+    // board reprices against live quotes before sorting, so the composition shifts
+    // through the day, and a threshold tuned to one snapshot silently stops firing.
     let biggest: { n: number; yes: number; ticker: string } | null = null;
     for (const e of byGame.values()) {
       if (!biggest || e.n > biggest.n) biggest = e;
     }
-    if (!biggest || biggest.n < 5) return null;
-    const same = Math.max(biggest.yes, biggest.n - biggest.yes);
-    if (same < Math.ceil(biggest.n * 0.7)) return null;
-    return {
-      n: biggest.n,
-      same,
-      shown: top.length,
-      games: byGame.size,
-      label: gameFromTicker(biggest.ticker)?.label ?? "one game",
-    };
+    if (biggest && biggest.n >= 4) {
+      const same = Math.max(biggest.yes, biggest.n - biggest.yes);
+      if (same >= Math.ceil(biggest.n * 0.7)) {
+        return {
+          headline:
+            `${biggest.n} of the top ${top.length} rows are ${gameFromTicker(biggest.ticker)?.label ?? "one game"}`
+            + `, and ${same} of those take the same side of one game script.`,
+        };
+      }
+    }
+
+    // No single game dominates, but the board can still be one bet: a slate-wide tilt
+    // to overs or unders is the same correlation one level up.
+    const same = Math.max(overYes, top.length - overYes);
+    if (same >= Math.ceil(top.length * 0.7)) {
+      return {
+        headline:
+          `${same} of the top ${top.length} rows take the same side`
+          + `${overYes >= same ? " (overs)" : " (unders)"} across the slate.`,
+      };
+    }
+    return null;
   }, [filtered]);
 
   if (rows.length === 0) {
@@ -178,11 +194,7 @@ export function PropBoard({ rows, status }: { rows: Row[]; status?: BoardStatus 
     <>
       {concentration && (
         <p className="mb-3 rounded border border-warn/40 bg-warn/[0.06] px-3 py-2 text-[11.5px] leading-relaxed text-ink-2">
-          <strong className="font-medium text-warn">
-            {concentration.n} of the top {concentration.shown} rows are{" "}
-            {concentration.label}, and {concentration.same} of those take the same side
-            of one game script.
-          </strong>{" "}
+          <strong className="font-medium text-warn">{concentration.headline}</strong>{" "}
           Every prop in a game is priced from a single simulated game, so they rise and
           fall together — and this board lists every strike, so one opinion can fill a
           screen. Backing several is one position at several times the stake, not a
