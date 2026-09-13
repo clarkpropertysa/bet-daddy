@@ -26,33 +26,20 @@ const MIN_EDGE_CENTS = 1.0;
  */
 const MAX_SPREAD_CENTS = 15;
 
+/** How many props the page lists. The correlation banner scales its floor with this. */
+const TOP_PICKS = 15;
+
 export default async function TopPicksPage() {
   const [rows, slate, health] = await Promise.all([
     // One row per PROJECTION. A ticker is unique per strike, so ranking raw signals
     // let a single player's twenty-rung ladder take most of the list -- twenty copies
     // of one opinion, presented as twenty opportunities.
-    getProjectionBoard(40),
+    // Wide enough that 15 survive the fee, book-width and rushing gates: the query
+    // reads the same 1,000 board rows whatever this number is, so it costs nothing.
+    getProjectionBoard(80),
     getNextSlate(),
     getJobHealth(),
   ]);
-
-  const wideBooks = rows.filter(
-    (r) =>
-      r.edgeCentsNet >= MIN_EDGE_CENTS &&
-      !r.implausible &&
-      r.spreadCents !== null &&
-      r.spreadCents > MAX_SPREAD_CENTS,
-  ).length;
-
-  /** Clears every gate on its own merits, and is withheld anyway. See lib/suppressed. */
-  const withheld = rows.filter(
-    (r) =>
-      r.edgeCentsNet >= MIN_EDGE_CENTS &&
-      !r.implausible &&
-      r.spreadCents !== null &&
-      r.spreadCents <= MAX_SPREAD_CENTS &&
-      isSuppressed(r.marketType),
-  ).length;
 
   const props = rows
     .filter(
@@ -68,7 +55,33 @@ export default async function TopPicksPage() {
         // those. Still listed on /board, just not recommended here.
         !isSuppressed(r.marketType),
     )
-    .slice(0, 10);
+    .slice(0, TOP_PICKS);
+
+  // "HELD BACK" MEANS IT WOULD HAVE MADE THE LIST. Counted over the whole candidate
+  // pool, the rushing figure jumped from 8 to 18 the moment the pool widened for a
+  // 15-pick page -- the number described the query, not the picks. Only rows whose
+  // edge would have ranked among the listed ones count.
+  const cutoff = props.length === TOP_PICKS
+    ? props[props.length - 1].edgeCentsNet
+    : MIN_EDGE_CENTS;
+
+  const wideBooks = rows.filter(
+    (r) =>
+      r.edgeCentsNet >= cutoff &&
+      !r.implausible &&
+      r.spreadCents !== null &&
+      r.spreadCents > MAX_SPREAD_CENTS,
+  ).length;
+
+  /** Clears every gate on its own merits, and is withheld anyway. See lib/suppressed. */
+  const withheld = rows.filter(
+    (r) =>
+      r.edgeCentsNet >= cutoff &&
+      !r.implausible &&
+      r.spreadCents !== null &&
+      r.spreadCents <= MAX_SPREAD_CENTS &&
+      isSuppressed(r.marketType),
+  ).length;
 
   /**
    * A pick is a DISAGREEMENT with the market, which is not what `leanConfident`
@@ -156,7 +169,7 @@ export default async function TopPicksPage() {
           </span>
         </div>
 
-        {/* Four of the ten picks can be one game script. The board had this warning;
+        {/* Four of the picks can be one game script. The board had this warning;
             the page people actually read did not. */}
         <ScriptBanner rows={props} noun="picks" />
 
