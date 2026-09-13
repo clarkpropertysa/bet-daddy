@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Empty } from "@/components/Empty";
 import { PageHeader } from "@/components/PageHeader";
+import { ScriptBanner } from "@/components/ScriptBanner";
 import { TopPickList } from "@/components/TopPickList";
 import { StaleBanner } from "@/components/StaleBanner";
 import { getJobHealth, getNextSlate, getProjectionBoard } from "@/lib/queries";
@@ -154,6 +155,10 @@ export default async function TopPicksPage() {
             {withheld > 0 ? ` · ${withheld} held back on ${SUPPRESSED_LABEL}` : ""}
           </span>
         </div>
+
+        {/* Four of the ten picks can be one game script. The board had this warning;
+            the page people actually read did not. */}
+        <ScriptBanner rows={props} noun="picks" />
 
         {props.length === 0 ? (
           <Empty
