@@ -6,7 +6,7 @@ import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Tier, type TierName } from "@/components/Tier";
 import { WhyPanel, type WhyRow } from "@/components/WhyPanel";
 import { EdgeVerdict, Prediction, ProbabilityGap } from "@/components/Prediction";
-import { labelFor } from "@/lib/markets";
+import { gameFromTicker, labelFor } from "@/lib/markets";
 
 export type Row = WhyRow & {
   signalId: string;
@@ -126,12 +126,69 @@ export function PropBoard({ rows, status }: { rows: Row[]; status?: BoardStatus 
     else { setSort(k); setAsc(false); }
   };
 
+  /**
+   * ONE GAME SCRIPT, SLICED TWENTY WAYS.
+   *
+   * The exchange lists a hundred props per game and the model prices every one of them
+   * from a SINGLE simulated game. So when its view of that game differs from the
+   * market's, every prop inside it moves together: on this slate the top twenty edges
+   * in New Orleans at Detroit were eighteen on the same side, and Arizona at the
+   * Chargers is "Arizona keeps it close" stated thirteen ways.
+   *
+   * Taking thirty of those is not thirty positions. It is one position at thirty times
+   * the stake, and the board sorted by edge said nothing about it -- which is the same
+   * error `getProjectionBoard` already fixes WITHIN a player (twenty rungs of one
+   * ladder are one opinion) carried up to the level of the game.
+   */
+  const concentration = useMemo(() => {
+    const TOP = 20;
+    const top = filtered.slice(0, TOP);
+    if (top.length < 8) return null;
+    const byGame = new Map<string, { n: number; yes: number; ticker: string }>();
+    for (const r of top) {
+      const key = r.marketTicker.split("-")[1] ?? "?";
+      const e = byGame.get(key) ?? { n: 0, yes: 0, ticker: r.marketTicker };
+      e.n += 1;
+      if (r.side === "yes") e.yes += 1;
+      byGame.set(key, e);
+    }
+    // The game holding the most of those rows -- not the biggest same-side block,
+    // which flattered a five-row game into sounding like the whole board.
+    let biggest: { n: number; yes: number; ticker: string } | null = null;
+    for (const e of byGame.values()) {
+      if (!biggest || e.n > biggest.n) biggest = e;
+    }
+    if (!biggest || biggest.n < 5) return null;
+    const same = Math.max(biggest.yes, biggest.n - biggest.yes);
+    if (same < Math.ceil(biggest.n * 0.7)) return null;
+    return {
+      n: biggest.n,
+      same,
+      shown: top.length,
+      games: byGame.size,
+      label: gameFromTicker(biggest.ticker)?.label ?? "one game",
+    };
+  }, [filtered]);
+
   if (rows.length === 0) {
     return <Empty {...emptyCopy(status)} />;
   }
 
   return (
     <>
+      {concentration && (
+        <p className="mb-3 rounded border border-warn/40 bg-warn/[0.06] px-3 py-2 text-[11.5px] leading-relaxed text-ink-2">
+          <strong className="font-medium text-warn">
+            {concentration.n} of the top {concentration.shown} rows are{" "}
+            {concentration.label}, and {concentration.same} of those take the same side
+            of one game script.
+          </strong>{" "}
+          Every prop in a game is priced from a single simulated game, so they rise and
+          fall together — and this board lists every strike, so one opinion can fill a
+          screen. Backing several is one position at several times the stake, not a
+          spread of bets.
+        </p>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           value={q}
@@ -247,6 +304,11 @@ export function PropBoard({ rows, status }: { rows: Row[]; status?: BoardStatus 
                     netCents={r.edgeCentsNet}
                     feeCents={r.feeCents}
                     implausible={r.implausible}
+                    // "Strong" is a claim about evidence, not arithmetic.
+                    tier={r.tier}
+                    sampleN={r.sampleN}
+                    // And a family Top Picks withholds cannot shout here.
+                    marketType={r.marketType}
                   />
                 </Td>
                 <Td><Tier tier={r.tier} n={r.sampleN} /></Td>

@@ -1,6 +1,7 @@
 "use client";
 
 import { gameFromTicker, labelFor } from "@/lib/markets";
+import { isSuppressed, SUPPRESSED_LABEL } from "@/lib/suppressed";
 
 /**
  * The prediction as a sentence, not a row of fields.
@@ -102,9 +103,35 @@ export function ProbabilityGap({
  * Bands are set by the fee, not by taste: the fee peaks at 1.75c, so an edge under
  * ~2c is mostly fee and saying so is more useful than printing "+1.40¢".
  */
+/**
+ * Settled contracts a family needs before an edge may call itself strong. The same
+ * bar the tier promotes at, deliberately: two thresholds for one question would drift.
+ */
+const STRONG_MIN_SAMPLE = 50;
+
 export function EdgeVerdict({
-  netCents, feeCents, implausible,
-}: { netCents: number; feeCents: number; implausible: boolean }) {
+  netCents, feeCents, implausible, tier, sampleN, marketType,
+}: {
+  netCents: number; feeCents: number; implausible: boolean;
+  tier?: string; sampleN?: number; marketType?: string;
+}) {
+  // A FAMILY WITHHELD FROM THE PICKS CANNOT SHOUT ON THE BOARD. Rushing is held back
+  // from Top Picks because three measurements say the model is wrong there -- and this
+  // board was still calling the same rows "strong edge +34.3c". The two surfaces read
+  // the same suppression list so they cannot disagree about it again.
+  if (!implausible && isSuppressed(marketType) && netCents > 0) {
+    return (
+      <span className="block">
+        <span className="display text-[12px] text-warn">
+          held back
+          <span className="tnum ml-1.5 font-semibold">+{netCents.toFixed(1)}¢</span>
+        </span>
+        <span className="mt-0.5 block text-[10px] leading-snug text-ink-3">
+          {SUPPRESSED_LABEL} is measurably mispriced — not a pick
+        </span>
+      </span>
+    );
+  }
   if (implausible) {
     return (
       <span className="block">
@@ -122,7 +149,17 @@ export function EdgeVerdict({
                        note: `${feeCents.toFixed(2)}¢ of it is fee` }
     : netCents < 5 ? { label: "modest edge", tone: "text-pos",
                        note: "worth a look, not a shout" }
-    : { label: "strong edge", tone: "text-pos", note: "large disagreement with the market" };
+    // "STRONG" IS A CLAIM ABOUT EVIDENCE, NOT ARITHMETIC. A 14.9c gap computed off a
+    // calibration bucket of seventeen settled contracts is a big number from a small
+    // sample, and calling it strong made the row shout edge while the tier badge
+    // beside it whispered unvalidated. Above 5c the label now depends on whether the
+    // family has enough settled record for the number to mean anything.
+    : (sampleN ?? 0) < STRONG_MIN_SAMPLE || tier === "UNVALIDATED"
+      ? { label: "big gap, thin record", tone: "text-warn",
+          note: `${sampleN ?? 0} settled contract${(sampleN ?? 0) === 1 ? "" : "s"} — `
+                + `too few to call this strong` }
+      : { label: "strong edge", tone: "text-pos",
+          note: "large disagreement with the market" };
 
   return (
     <span className="block">

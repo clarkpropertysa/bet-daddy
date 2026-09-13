@@ -160,7 +160,15 @@ export function SlateGames({ games }: { games: SlateGame[] }) {
 
                   {/* The reasoning, in the row rather than a tooltip. A lean nobody
                       can inspect is just an assertion. */}
-                  {g.leanConfident && g.leanWhy && g.leanWhy.length > 0 && (
+                  {/* GATED ON THE DISAGREEMENT, not on `leanConfident`. That flag says
+                      the model projects a meaningful MARGIN, which is a different claim
+                      from disagreeing with the price -- Top Picks has said so since it
+                      was written, and this row contradicted it: Cleveland at Jacksonville
+                      showed a full writeup on a 1.3-point gap, inside the model's own
+                      +/-14 point error bar, while the page elsewhere preaches 3.5. */}
+                  {g.leanConfident && g.leanWhy && g.leanWhy.length > 0 &&
+                    g.leanDisagreement !== null &&
+                    Math.abs(g.leanDisagreement) >= 3.5 && (
                     <span className="basis-full text-[11px] leading-relaxed text-ink-2">
                       {g.leanWhy.join(" · ")}
                       {g.leanDisagreement !== null &&
