@@ -86,9 +86,17 @@ export function TopPickList({ picks }: { picks: ProjectionRow[] }) {
                         </span>
                       ) : null}
                       {" · "}
+                      {/* The ANCHORED probability leads -- it is what the row is ranked
+                          on -- with the model's own figure beside it so the blend is
+                          visible rather than silently applied. */}
                       <strong className="font-medium text-ink">
-                        {(r.modelProb * 100).toFixed(0)}%
-                      </strong>{" "}
+                        {((r.anchoredProb ?? r.modelProb) * 100).toFixed(0)}%
+                      </strong>
+                      {r.anchoredProb !== null && r.anchorWeight < 1 ? (
+                        <span className="text-ink-3">
+                          {" "}(model {(r.modelProb * 100).toFixed(0)}%)
+                        </span>
+                      ) : null}{" "}
                       vs {priceCents(r.marketProb)} market
                     </p>
                     <p className="mt-0.5 text-[11px] text-ink-3">
@@ -118,7 +126,7 @@ export function TopPickList({ picks }: { picks: ProjectionRow[] }) {
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="display text-[15px] text-pos">
-                      {signedCents(r.edgeCentsNet)}
+                      {signedCents(r.anchoredEdgeCents ?? r.edgeCentsNet)}
                     </p>
                     <p className="eyebrow">edge</p>
                   </div>

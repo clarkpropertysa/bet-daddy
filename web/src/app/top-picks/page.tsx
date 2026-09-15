@@ -6,6 +6,7 @@ import { TopPickList } from "@/components/TopPickList";
 import { StaleBanner } from "@/components/StaleBanner";
 import { getJobHealth, getNextSlate, getProjectionBoard } from "@/lib/queries";
 import { isSuppressed, SUPPRESSED_LABEL, SUPPRESSED_WHY } from "@/lib/suppressed";
+import { anchorFit } from "@/lib/anchor";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,13 @@ export default async function TopPicksPage() {
   const props = rows
     .filter(
       (r) =>
-        r.edgeCentsNet >= MIN_EDGE_CENTS &&
+        // RANKED AND GATED ON THE MARKET-ANCHORED EDGE (lib/anchor), not the model's own.
+        // Week 1 was the first time the model met prices: the market was the better
+        // forecaster, and on the picks offered the model said 53%, the market 37%, and
+        // 37% landed. A pick now has to survive being blended with the price at the weight
+        // the model has earned on settled contracts.
+        r.anchoredEdgeCents !== null &&
+        r.anchoredEdgeCents >= MIN_EDGE_CENTS &&
         !r.implausible &&
         // A null spread means we could not measure the book, which is not the same as
         // a tight one and must not pass silently.
@@ -62,12 +69,14 @@ export default async function TopPicksPage() {
   // 15-pick page -- the number described the query, not the picks. Only rows whose
   // edge would have ranked among the listed ones count.
   const cutoff = props.length === TOP_PICKS
-    ? props[props.length - 1].edgeCentsNet
+    ? (props[props.length - 1].anchoredEdgeCents as number)
     : MIN_EDGE_CENTS;
+  const fit = rows.length ? anchorFit(rows[0].reason) : null;
+  const pct = (w: number) => `${Math.round(w * 100)}%`;
 
   const wideBooks = rows.filter(
     (r) =>
-      r.edgeCentsNet >= cutoff &&
+      (r.anchoredEdgeCents ?? -Infinity) >= cutoff &&
       !r.implausible &&
       r.spreadCents !== null &&
       r.spreadCents > MAX_SPREAD_CENTS,
@@ -76,7 +85,7 @@ export default async function TopPicksPage() {
   /** Clears every gate on its own merits, and is withheld anyway. See lib/suppressed. */
   const withheld = rows.filter(
     (r) =>
-      r.edgeCentsNet >= cutoff &&
+      (r.anchoredEdgeCents ?? -Infinity) >= cutoff &&
       !r.implausible &&
       r.spreadCents !== null &&
       r.spreadCents <= MAX_SPREAD_CENTS &&
@@ -174,19 +183,34 @@ export default async function TopPicksPage() {
         <ScriptBanner rows={props} noun="picks" />
 
         {props.length === 0 ? (
-          <Empty
-            title="No prop clears its own fee"
-            source="Signal (Neon)"
-            hint="A prop only appears here when the model's probability beats the ask by more than the fee it would cost to take. Either no market is quoted yet, or nothing is currently mispriced enough to be worth listing."
-          />
+          fit && fit.n > 0 && fit.weight === 0 ? (
+            <Empty
+              title="Nothing beats the market yet"
+              source="SignalResult (Neon)"
+              hint={`Picks are ranked on the model blended with the market, at the weight the model has earned on settled contracts. Across ${fit.n.toLocaleString()} settled markets the market was the better forecaster${
+                fit.brierMarket !== null && fit.brierModel !== null
+                  ? ` (Brier ${fit.brierMarket.toFixed(4)} against the model's ${fit.brierModel.toFixed(4)})`
+                  : ""
+              }, so that weight is 0% — and at 0% no price clears its own spread and fee. This list fills again only when the model beats the market on results, not when it merely disagrees. Every projection is still on the board.`}
+            />
+          ) : (
+            <Empty
+              title="No prop clears its own fee"
+              source="Signal (Neon)"
+              hint="A prop appears here when the model, blended with the market at the weight it has earned, beats the ask by more than the fee. Either no market is quoted yet, or nothing is currently mispriced enough to be worth listing."
+            />
+          )
         ) : (
           <TopPickList picks={props} />
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
           The multiple is Kalshi&apos;s own figure — what a dollar returns if the
           contract settles — and it carries no opinion: a long shot always shows a big
-          one. The edge beside it is the model&apos;s claim, net of the exact taker fee,
-          and is the number that says whether the price is worth paying.
+          one. The edge beside it is <strong className="font-medium">anchored to the
+          market</strong>: the model&apos;s probability blended with the book&apos;s mid at
+          the weight the model has earned on settled contracts
+          {fit ? ` (currently ${pct(fit.weight)} model, fitted on ${fit.n.toLocaleString()} settled markets)` : ""},
+          net of the exact taker fee.
         </p>
         <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
           Kalshi is an exchange, so every contract needs someone on the other side.

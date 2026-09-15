@@ -4,6 +4,7 @@ import { computeEdge, pOverAtStrike } from "@/lib/edge";
 import { getLiveQuotes, type LiveQuoteBook } from "@/lib/livePrices";
 import { eventMatchesGame, tickerMatchesGame } from "@/lib/markets";
 import { isSuppressed } from "@/lib/suppressed";
+import { anchoredEdge, anchorWeight } from "@/lib/anchor";
 
 /** Same threshold the Python job applies. Recomputed here because a live price can
  *  move a signal across it in either direction, and a stale flag is worse than none. */
@@ -47,6 +48,32 @@ function reprice(r: BoardRow, book: LiveQuoteBook): BoardRow {
       q.yesAsk !== null && q.yesBid !== null
         ? Math.round((q.yesAsk - q.yesBid) * 1000) / 10
         : storedSpreadCents(r),
+  };
+}
+
+/**
+ * Attach the market-anchored edge for the side the model picked (lib/anchor). The mid is
+ * taken from the same book the price came from -- live where the price is live -- because
+ * anchoring a live price to a stored mid would mix two moments into one number.
+ */
+function withAnchor(r: BoardRow, book: LiveQuoteBook): BoardRow {
+  const q = book.quotes.get(r.marketTicker);
+  const live = r.priceSource === "live" && q !== undefined;
+  const weight = anchorWeight(r.reason);
+  const a = anchoredEdge({
+    side: r.side,
+    modelProb: r.modelProb,
+    marketProb: r.marketProb,
+    feeCents: r.feeCents,
+    yesAsk: live ? q.yesAsk : r.yesAsk,
+    yesBid: live ? q.yesBid : r.yesBid,
+    weight,
+  });
+  return {
+    ...r,
+    anchorWeight: weight,
+    anchoredProb: a?.prob ?? null,
+    anchoredEdgeCents: a?.edgeCents ?? null,
   };
 }
 
@@ -112,6 +139,14 @@ export type BoardRow = {
    *  downstream until now. */
   volume: number | null;
   openInterest: number | null;
+  /** The weight the model has EARNED against the market on settled contracts, fitted by
+   *  the projection run (pipeline/model/anchor.py). 0 means the market is trusted. */
+  anchorWeight: number;
+  /** The model blended with the market's mid at that weight, for the side picked. */
+  anchoredProb: number | null;
+  /** What Top Picks ranks on: the anchored probability minus the price and the fee. At
+   *  weight 0 this is mid - ask - fee, negative on every real book. Null with no mid. */
+  anchoredEdgeCents: number | null;
 };
 
 /** Why the board is empty, taken from the last projection run rather than guessed. */
@@ -219,7 +254,7 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
   const scoped = gameId
     ? rows.filter((r) => tickerMatchesGame(r.marketTicker, gameId))
     : rows;
-  const priced = scoped.map((r) => reprice(r, book));
+  const priced = scoped.map((r) => withAnchor(reprice(r, book), book));
   priced.sort((a, b) => b.edgeCentsNet - a.edgeCentsNet);
   return priced.slice(0, limit);
 }
@@ -266,7 +301,9 @@ export async function getProjectionBoard(
     const cur = best.get(key);
     if (!cur) {
       best.set(key, { ...r, ladderRungs: 1 });
-    } else if (r.edgeCentsNet > cur.edgeCentsNet) {
+    // The rung that survives is the one with the best ANCHORED edge: the strike most worth
+    // taking once the model is weighted by what it has earned, not by what it claims.
+    } else if ((r.anchoredEdgeCents ?? -Infinity) > (cur.anchoredEdgeCents ?? -Infinity)) {
       best.set(key, { ...r, ladderRungs: cur.ladderRungs + 1 });
     } else {
       cur.ladderRungs += 1;
@@ -274,7 +311,7 @@ export async function getProjectionBoard(
   }
 
   return [...best.values()]
-    .sort((a, b) => b.edgeCentsNet - a.edgeCentsNet)
+    .sort((a, b) => (b.anchoredEdgeCents ?? -Infinity) - (a.anchoredEdgeCents ?? -Infinity))
     .slice(0, limit);
 }
 
@@ -569,25 +606,40 @@ export async function getTopEdges(limit = 6) {
       order by s."marketTicker", s."runTs" desc
     ),
     best as (
+      -- Ranked on the MARKET-ANCHORED edge, the same number Top Picks ranks on (lib/anchor):
+      -- the model blended with the book's mid at the weight it has earned, minus the price
+      -- and the fee. Two pages ranking the same slate on different numbers would disagree
+      -- about what a pick is.
       select l.*, pr."marketType" as mt, pr."playerId" as pid, pr."gameId" as gid,
+             a.anchored,
              row_number() over (
                partition by pr."playerId", pr."marketType", pr."gameId"
-               order by l."edgeCentsNet" desc
+               order by a.anchored desc
              ) as rn
       from latest l
       join "Projection" pr on pr.id = l."projectionId"
+      cross join lateral (
+        select (((least(greatest(coalesce((l.reason->'anchor'->>'weight')::float8, 0), 0), 1))
+                   * l."modelProb"::float8
+                 + (1 - least(greatest(coalesce((l.reason->'anchor'->>'weight')::float8, 0), 0), 1))
+                   * case when l.side = 'yes' then ((l."yesAsk" + l."yesBid") / 2)::float8
+                          else (1 - (l."yesAsk" + l."yesBid") / 2)::float8 end
+                 - l."marketProb"::float8) * 100 - l."feeCents"::float8) as anchored
+      ) a
       where coalesce((l.reason->>'implausible')::boolean,false) = false
-        and l."edgeCentsNet" > 0
+        and l."yesAsk" is not null and l."yesBid" is not null
+        and l."yesAsk" < 1 and l."yesBid" > 0
+        and a.anchored >= 1
     )
     select coalesce(p."fullName",'unresolved') as player,
            b.mt as "marketType",
            b.strike::float8 as strike,   -- floor_strike, not the ticker suffix
-           b.side, b."edgeCentsNet"::float8 as "edgeCentsNet",
+           b.side, b.anchored as "edgeCentsNet",
            b.tier::text as tier, p."headshotUrl" as "headshotUrl"
     from best b
     left join "Player" p on p.id = b.pid
     where b.rn = 1
-    order by b."edgeCentsNet" desc
+    order by b.anchored desc
     limit ${limit * 5}
   `;
   return rows.filter((r) => !isSuppressed(r.marketType)).slice(0, limit);

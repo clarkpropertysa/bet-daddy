@@ -206,8 +206,12 @@ export function TopEdges({
   if (edges.length === 0) {
     return (
       <p className="text-[12px] leading-relaxed text-ink-2">
-        No positive-edge signals yet. Signals appear once the slate is quoted and
-        the projection job runs — markets are listed well before they are priced.
+        Nothing beats the market yet. Edges here are anchored to the price at the weight
+        the model has earned on settled contracts, and across Week 1 the market was the
+        better forecaster — so no prop clears its spread and fee.{" "}
+        <Link href="/top-picks" className="text-steel underline-offset-2 hover:underline">
+          Why →
+        </Link>
       </p>
     );
   }

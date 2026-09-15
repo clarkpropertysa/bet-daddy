@@ -75,6 +75,7 @@ from pipeline.model.anytime_td import (
     load_td_inputs,
     project_anytime_td,
 )
+from pipeline.model.anchor import NO_EVIDENCE, load_fit as load_anchor_fit
 from pipeline.model.rationale import build_rationale
 from pipeline.model.signal import compute_edge
 from pipeline.model.simulate import (
@@ -545,6 +546,18 @@ def run(
             clv_by_family = {row[0]: (int(row[1] or 0), row[2]) for row in _c.fetchall()}
     except Exception:
         clv_by_family = {}
+
+    # How much of the model's probability belongs in a forecast, measured against the
+    # market on every settled market so far and applied to games not yet played. Week 1
+    # fitted it at zero -- see model/anchor.py. Carried on every signal so the page ranks
+    # on the earned weight rather than an invented one.
+    anchor_fit = NO_EVIDENCE
+    try:
+        import psycopg as _pga
+        with _pga.connect(config.DATABASE_URL) as _aconn:
+            anchor_fit = load_anchor_fit(_aconn)
+    except Exception:
+        anchor_fit = NO_EVIDENCE
     room_examples: dict[str, str] = {}
     # Every refusal, so the reason can be shown where a reader looks
     # for the player. Written from here rather than re-derived in the
@@ -1042,6 +1055,7 @@ def run(
                 "divergence": round(divergence, 4),
                 "implausible": implausible,
                 "model_version": model_version,
+                "anchor": anchor_fit.as_dict(),
                 # Generated HERE, not at read time, so the rendered argument is what
                 # the model believed when the signal fired.
                 "rationale": build_rationale(
@@ -1180,6 +1194,8 @@ def run(
             "with_adjustments": n_with_adj,
             "share_based_baselines": n_share_based,
             "with_p_inactive": n_p_inactive,
+            "anchor_weight": anchor_fit.weight,
+            "anchor_n": anchor_fit.n,
             "with_spread": n_spread,
             "outdoor_games": n_outdoor, "with_wind": n_wind,
             "role_refused": n_role_refused,
@@ -1275,7 +1291,8 @@ def main():
           f"with_p_inactive={r.get('with_p_inactive', 0)} "
           f"with_spread={r.get('with_spread', 0)} "
           f"outdoor={r.get('outdoor_games', 0)} with_wind={r.get('with_wind', 0)} "
-          f"teams_current={r.get('teams_with_current_season', 0)}/32")
+          f"teams_current={r.get('teams_with_current_season', 0)}/32 "
+          f"anchor_weight={r.get('anchor_weight', 0)} on {r.get('anchor_n', 0)} settled")
     census = r.get("census")
     if census:
         print(f"open markets: listed={census['listed']} quoted={census['quoted']} "

@@ -3257,3 +3257,62 @@ after the variance fix failed the same test.
 
 Revisit when there is a second season of snap data, which roughly doubles the receiver
 sample the question actually depends on.
+
+## Week 1 against the market, and the pivot to a market-anchored ranking
+
+Week 1 was the first time the model met Kalshi prices head to head. The 2025 backtest
+beat the box score by 21%, but it had no prices to beat -- Kalshi keeps no settled prop
+markets across seasons -- so "better than his own hit rate" was the only bar it ever
+cleared. Against the market it lost.
+
+    2,718 settled markets, one decision each (last pre-kickoff signal)
+                     model said  market said  happened   Brier model  Brier market
+    all                  52.9%       48.2%      45.7%       0.1583       0.1506
+    tradeable picks      55.2%       47.3%      44.4%       0.1881       0.1757
+    unders               68.4%       60.7%      55.5%       0.2091       0.1905
+
+    Top Picks as published: 22-37 over 59 settled, -$0.45 at one contract each against a
+    model expectation of +$9.03. Model said 53.4%, market said 36.6%, 37.3% landed.
+
+The market was the better forecaster in every family except passing touchdowns (n=60),
+and the gap GREW with the claimed edge: on bets the model rated 20c or better it said
+64%, the market 38%, and 40% landed. That is selection, not bad luck. The model is
+roughly calibrated across every strike, but a pick exists only where it disagrees with
+the price, and disagreement is where its errors concentrate.
+
+Two alternatives were measured before choosing, on the same 2,568 settled markets:
+
+    the edge the model claims          won 44%  paid 47c  -4.5c a bet
+    the model's most probable side     won 76%  paid 78c  -3.5c a bet
+      ...where the model says 90%+     won 90%  paid 94c  -5.0c a bet
+    the market's favourite, no model   won 77%  paid 79c  -3.6c a bet
+
+Everything loses about 4c -- roughly half the spread plus the fee, the cost of trading.
+"Most probable" wins often and loses steadily, and every one of the model's 80%+ picks
+was simply the market favourite. It was rejected as a pick list because an 87% hit rate
+would read as a working model while the balance fell.
+
+**What changed.** Top Picks and the Slate's Top edges rank on
+
+    p = w * p_model + (1 - w) * p_market_mid
+
+for the side the model picked, net of the fee. `pipeline/model/anchor.py` fits `w` every
+projection run from every settled market so far and carries it on each signal; the web
+reads it and never invents one. It is applied to games not yet played, so each week is an
+out-of-sample test by construction. Below 500 settled markets `w` is zero.
+
+**The first fit picked up noise, and the test caught it.** Taking the lowest Brier on the
+grid, pure noise earned weight 0.05 against a market that priced the exact truth -- by
+0.0001 of Brier over 4,000 synthetic bets -- because finite outcomes never match their
+probabilities. A lucky week would have started printing picks built on nothing. A blend
+must now beat the market by three standard errors on the same bets (paired), and three
+rather than two because props inside a game are one simulation, so the naive standard
+error is too small. The test pins both halves: the lucky sliver is really there, and it
+earns nothing.
+
+Fitted on production: **w = 0.0** over 2,582 settled markets (Brier market 0.1563, model
+0.1648). At zero the anchored edge is mid - ask - fee, negative on any book with a spread,
+so Top Picks is empty and says why, with the Brier figures, instead of looking broken.
+Every projection stays on the board. The list fills again only when the model beats the
+market on results -- which, if it ever happens, is the first genuine evidence of an edge
+this project will have produced.
