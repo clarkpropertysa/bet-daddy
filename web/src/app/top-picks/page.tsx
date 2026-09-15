@@ -103,9 +103,15 @@ export default async function TopPicksPage() {
    * home team LESS than the market does -- and the side with value is the away team.
    * Naming `leanTeam` there would recommend the exact team the model is fading.
    */
+  // A lean on a game already played is not a pick. Day-level, because per-game kickoff
+  // is not populated ahead of time: this listed "IND +3.5 in BAL @ IND" two days after
+  // the game.
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
   const leans = slate
     .filter(
       (g) =>
+        new Date(g.gameDate).getTime() >= today.getTime() &&
         g.leanDisagreement !== null &&
         Math.abs(g.leanDisagreement) >= 3.5 &&
         g.spreadLine !== null,

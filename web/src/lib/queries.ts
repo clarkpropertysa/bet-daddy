@@ -373,13 +373,16 @@ export async function getBoardStatus(): Promise<BoardStatus | null> {
   };
 }
 
-export async function getTrackRecord() {
-  const results = await prisma.signalResult.findMany({
-    include: { signal: true },
-    orderBy: { gradedTs: "desc" },
-    take: 500,
-  });
-  return results;
+/**
+ * How many graded signals exist -- a COUNT, not the rows.
+ *
+ * This fetched the latest 500 results with every signal and its full rationale attached,
+ * then printed `results.length`. So the Track Record said "500 graded signals on record"
+ * with 2,762 graded, and paid Neon for 500 rationale payloads to say it. The one page this
+ * project promises never to soften was understating itself by a factor of five.
+ */
+export async function getGradedCount(): Promise<number> {
+  return prisma.signalResult.count();
 }
 
 /** Aggregate CLV by tier -- the number the whole project is judged on. */
@@ -541,10 +544,21 @@ export async function getNextSlate(): Promise<SlateGame[]> {
 
 async function nextSlateGames(): Promise<SlateGame[]> {
   return prisma.$queryRaw<SlateGame[]>`
-    with next_week as (
-      select season, week from "Game"
-      where "gameDate" >= current_date - interval '1 day'
-      order by "gameDate" limit 1
+    -- THE WEEK ROLLS THE MORNING AFTER ITS LAST GAME. gameDate >= current_date - 1 day
+    -- kept a finished week current for two extra days: on the Tuesday after Week 1 the
+    -- Slate still read "Week 1 in progress" and Top Picks listed a lean on a game played
+    -- on Sunday. gameDate is the Eastern date and a Monday night game ends around 04:00 UTC
+    -- Tuesday, so the week holds until 08:00 UTC the day after its last game date.
+    -- (Per-game kickoff is not populated ahead of time, so this is the finest clock
+    -- available.)
+    with weeks as (
+      select season, week, min("gameDate") as first_day, max("gameDate") as last_day
+      from "Game" group by 1, 2
+    ),
+    next_week as (
+      select season, week from weeks
+      where last_day + interval '1 day 8 hours' > now()
+      order by first_day limit 1
     )
     select
       g.id as "gameId", g."gameDate", g."kickoffUtc"::text as kickoff, g.week,

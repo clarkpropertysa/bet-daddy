@@ -1,6 +1,6 @@
 import { Empty } from "@/components/Empty";
 import { signedCents } from "@/lib/format";
-import { getClvSummary, getTrackRecord } from "@/lib/queries";
+import { getClvSummary, getGradedCount } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * second-best outcome and much better than a dashboard that lies.
  */
 export default async function TrackRecordPage() {
-  const [summary, results] = await Promise.all([getClvSummary(), getTrackRecord()]);
+  const [summary, graded] = await Promise.all([getClvSummary(), getGradedCount()]);
 
   return (
     <div className="space-y-5">
@@ -70,7 +70,7 @@ export default async function TrackRecordPage() {
       )}
 
       <p className="text-[11.5px] text-ink-2">
-        {results.length} graded signal{results.length === 1 ? "" : "s"} on record.
+        {graded.toLocaleString()} graded signal{graded === 1 ? "" : "s"} on record.
         Negative CLV is reported as-is; signal families that show it are killed rather
         than hidden.
       </p>
