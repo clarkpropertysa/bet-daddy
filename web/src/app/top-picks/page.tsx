@@ -194,11 +194,13 @@ export default async function TopPicksPage() {
             model's own percentages, and Week 1 measured exactly how far they lean. */}
         <p className="mb-3 rounded border border-line bg-steel-100/50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-2">
           <strong className="font-medium text-ink">Expectations, not recommendations.</strong>{" "}
-          These are the model&apos;s own numbers with no reference to any price. Against the
-          honest baseline — how often a player has already cleared a line — the projections
-          beat the box score by 21% over 2025. The percentages run confident: across Week 1
-          the model said 53% on the calls it wanted to make and 37% of them happened, so
-          read a 78% as &quot;likely&quot;, not as 78 in 100.
+          These are the model&apos;s own numbers with no reference to any price. Read a row
+          left to right: what it expects, the highest line it is confident he CLEARS, the
+          lowest line it is confident he STAYS UNDER, and which of the two it is surer
+          about. Against the honest baseline — how often a player has already cleared a
+          line — the projections beat the box score by 21% over 2025. The percentages run
+          confident: across Week 1 the model said 53% on the calls it wanted to make and
+          37% of them happened, so read a 78% as &quot;likely&quot;, not as 78 in 100.
         </p>
 
         {expected.length === 0 ? (
