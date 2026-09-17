@@ -5,6 +5,8 @@ import { getLiveQuotes, type LiveQuoteBook } from "@/lib/livePrices";
 import { eventMatchesGame, tickerMatchesGame } from "@/lib/markets";
 import { isSuppressed } from "@/lib/suppressed";
 import { anchoredEdge, anchorWeight } from "@/lib/anchor";
+import { expectationFrom, type Expectation, type LadderPoint } from "@/lib/expectation";
+import { gameFromTicker } from "@/lib/markets";
 
 /** Same threshold the Python job applies. Recomputed here because a live price can
  *  move a signal across it in either direction, and a stale flag is worse than none. */
@@ -110,6 +112,8 @@ export type BoardRow = {
   sampleN: number;
   runTs: Date;
   closeTime: Date | null;
+  /** Actual kickoff, not Kalshi's settlement deadline two days later. */
+  kickoff: Date | null;
   priceAsOf: Date | null;
   reason: unknown;
   implausible: boolean;
@@ -222,6 +226,7 @@ export async function getBoard(limit = 200, gameId?: string): Promise<BoardRow[]
       l."sampleN"         as "sampleN",
       l."runTs"           as "runTs",
       l."closeTime"       as "closeTime",
+      l."kickoff"         as "kickoff",
       l."priceAsOf"       as "priceAsOf",
       pr."pOverByStrike"  as "pOverByStrike",
       l."yesAsk"::float8  as "yesAsk",
@@ -313,6 +318,103 @@ export async function getProjectionBoard(
   return [...best.values()]
     .sort((a, b) => (b.anchoredEdgeCents ?? -Infinity) - (a.anchoredEdgeCents ?? -Infinity))
     .slice(0, limit);
+}
+
+/**
+ * WHAT THE MODEL EXPECTS, with no reference to any price.
+ *
+ * Top Picks used to rank on disagreement with the market. Week 1 measured that: the price
+ * was the better forecaster and a bet on every model edge lost about 4c a contract. What
+ * the model is genuinely good for is the projection itself -- against the honest baseline
+ * of a player's own hit rate it beat the box score by 21% over the 2025 season.
+ *
+ * So this returns the projections, grouped by game and ordered by kickoff, each reduced to
+ * the two statements its own curve supports (lib/expectation). The ladder is assembled
+ * ACROSS rows: the pipeline writes one Projection per market ticker, so a player's curve
+ * is spread over every strike of his ladder and only exists once they are gathered.
+ *
+ * No edge, no price, no ranking by disagreement. The prices are still on the board.
+ */
+export type ModelClaim = {
+  key: string;
+  player: string;
+  team: string | null;
+  headshotUrl: string | null;
+  marketType: string;
+  marketTicker: string;
+  projMean: number | null;
+  projMedian: number | null;
+  expectation: Expectation;
+  /** The best-priced rung, carried so the row can still open the Why panel. */
+  row: BoardRow;
+};
+
+export type ModelGame = {
+  game: string;
+  label: string;
+  kickoff: Date | null;
+  claims: ModelClaim[];
+};
+
+/** Ordered the way a stat sheet reads, not by how loud the model is. */
+const MARKET_ORDER = ["pass_yds", "pass_tds", "rush_yds", "rec_yds", "receptions"];
+
+export async function getModelView(perGame = 12): Promise<ModelGame[]> {
+  const rows = await getBoard(2000);
+
+  const byProjection = new Map<string, { rows: BoardRow[]; ladder: LadderPoint[] }>();
+  for (const r of rows) {
+    // Ticker minus its strike segment is exactly (player, market, game).
+    const key = r.marketTicker.slice(0, r.marketTicker.lastIndexOf("-"));
+    const e = byProjection.get(key) ?? { rows: [], ladder: [] };
+    e.rows.push(r);
+    // The model's P(over) at this strike, whichever side the pricing layer preferred.
+    const pOver = r.side === "no" ? 1 - r.modelProb : r.modelProb;
+    if (r.strike !== null) e.ladder.push({ strike: r.strike, pOver });
+    byProjection.set(key, e);
+  }
+
+  const byGame = new Map<string, ModelGame>();
+  for (const [key, { rows: group, ladder }] of byProjection) {
+    const lead = group[0];
+    const game = lead.marketTicker.split("-")[1] ?? "?";
+    const g = byGame.get(game) ?? {
+      game,
+      label: gameFromTicker(lead.marketTicker)?.label ?? game,
+      kickoff: lead.kickoff ? new Date(lead.kickoff) : null,
+      claims: [],
+    };
+    g.claims.push({
+      key,
+      player: lead.player,
+      team: lead.team,
+      headshotUrl: lead.headshotUrl,
+      marketType: lead.marketType,
+      marketTicker: lead.marketTicker,
+      projMean: lead.projMean,
+      projMedian: lead.projMedian,
+      expectation: expectationFrom(ladder),
+      row: group.reduce((a, b) => (b.edgeCentsNet > a.edgeCentsNet ? b : a), group[0]),
+    });
+    byGame.set(game, g);
+  }
+
+  const order = (m: string) => {
+    const i = MARKET_ORDER.indexOf(m);
+    return i === -1 ? MARKET_ORDER.length : i;
+  };
+  return [...byGame.values()]
+    .map((g) => ({
+      ...g,
+      claims: g.claims
+        .sort(
+          (a, b) =>
+            order(a.marketType) - order(b.marketType) ||
+            (b.projMean ?? 0) - (a.projMean ?? 0),
+        )
+        .slice(0, perGame),
+    }))
+    .sort((a, b) => (a.kickoff?.getTime() ?? 0) - (b.kickoff?.getTime() ?? 0));
 }
 
 /** Most recent successful run per job, for the staleness banner. */

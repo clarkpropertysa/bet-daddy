@@ -4,7 +4,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { ScriptBanner } from "@/components/ScriptBanner";
 import { TopPickList } from "@/components/TopPickList";
 import { StaleBanner } from "@/components/StaleBanner";
-import { getJobHealth, getNextSlate, getProjectionBoard } from "@/lib/queries";
+import { getJobHealth, getModelView, getNextSlate, getProjectionBoard } from "@/lib/queries";
+import { ModelView } from "@/components/ModelView";
 import { isSuppressed, SUPPRESSED_LABEL, SUPPRESSED_WHY } from "@/lib/suppressed";
 import { anchorFit } from "@/lib/anchor";
 
@@ -31,13 +32,15 @@ const MAX_SPREAD_CENTS = 15;
 const TOP_PICKS = 15;
 
 export default async function TopPicksPage() {
-  const [rows, slate, health] = await Promise.all([
+  const [rows, expected, slate, health] = await Promise.all([
     // One row per PROJECTION. A ticker is unique per strike, so ranking raw signals
     // let a single player's twenty-rung ladder take most of the list -- twenty copies
     // of one opinion, presented as twenty opportunities.
     // Wide enough that 15 survive the fee, book-width and rushing gates: the query
     // reads the same 1,000 board rows whatever this number is, so it costs nothing.
     getProjectionBoard(80),
+    // What the model expects, with no reference to price -- the page's lead section.
+    getModelView(),
     getNextSlate(),
     getJobHealth(),
   ]);
@@ -154,16 +157,20 @@ export default async function TopPicksPage() {
     .sort((a, b) => b.total - a.total);
 
   const archiver = health.find((h) => h.job === "kalshi_archiver");
-  const newestPrice = props.reduce<Date | null>((acc, r) => {
-    const t = r.priceAsOf ? new Date(r.priceAsOf) : null;
-    return t && (!acc || t > acc) ? t : acc;
-  }, null);
+  // Read off what is ON THE PAGE. It used to read the picks list, which is now usually
+  // empty, so a current page reported the archiver's age instead of the price's.
+  const newestPrice = expected
+    .flatMap((g) => g.claims)
+    .reduce<Date | null>((acc, c) => {
+      const t = c.row.priceAsOf ? new Date(c.row.priceAsOf) : null;
+      return t && (!acc || t > acc) ? t : acc;
+    }, null);
 
   return (
     <div>
       <PageHeader
         title="Top Picks"
-        sub="What the model expects, and where that differs enough from the price to be worth acting on. One row per projection: the exchange lists twenty strikes against a single forecast, and those are twenty ways to state one opinion, not twenty opportunities. Nothing is ranked across kinds — a prop edge is cents after fees and a game lean is points, and inventing a common score would hide which is which."
+        sub="What the model expects to happen this week, game by game, with no reference to any price: the projection, and the lines its own distribution is confident about. Prices come second — a separate section says where a projection also beats the ask, which on current evidence is nowhere. Nothing is ranked across kinds, because a prop is cents after fees and a game lean is points."
         right={
           <StaleBanner
             lastRun={newestPrice ?? archiver?.startedAt ?? null}
@@ -173,77 +180,73 @@ export default async function TopPicksPage() {
         }
       />
 
-      {/* ---------------------------------------------------------------- props */}
+      {/* ------------------------------------------------- what the model expects */}
       <section className="mb-6">
         <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h2 className="display text-[14px] text-ink">Player props</h2>
+          <h2 className="display text-[14px] text-ink">What the model expects</h2>
           <span className="eyebrow">
-            one row per projection · {props.length} clearing the bar
+            {expected.reduce((n, g) => n + g.claims.length, 0)} projections ·{" "}
+            {expected.length} {expected.length === 1 ? "game" : "games"}
+          </span>
+        </div>
+
+        {/* THE CALIBRATION WARNING STAYS ON THE PAGE, not in a footnote. These are the
+            model's own percentages, and Week 1 measured exactly how far they lean. */}
+        <p className="mb-3 rounded border border-line bg-steel-100/50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-2">
+          <strong className="font-medium text-ink">Expectations, not recommendations.</strong>{" "}
+          These are the model&apos;s own numbers with no reference to any price. Against the
+          honest baseline — how often a player has already cleared a line — the projections
+          beat the box score by 21% over 2025. The percentages run confident: across Week 1
+          the model said 53% on the calls it wanted to make and 37% of them happened, so
+          read a 78% as &quot;likely&quot;, not as 78 in 100.
+        </p>
+
+        {expected.length === 0 ? (
+          <Empty
+            title="Nothing projected for the next slate"
+            source="Projection (Neon)"
+            hint="Projections appear once the week's markets are listed and the projection job has run. Markets are listed well before they are priced."
+          />
+        ) : (
+          <ModelView games={expected} />
+        )}
+      </section>
+
+      {/* --------------------------------------------------- and where it beats a price */}
+      <section className="mb-6">
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <h2 className="display text-[14px] text-ink">Where it also beats the price</h2>
+          <span className="eyebrow">
+            {props.length} clearing the bar
             {wideBooks > 0 ? ` · ${wideBooks} held back on a wide book` : ""}
             {withheld > 0 ? ` · ${withheld} held back on ${SUPPRESSED_LABEL}` : ""}
           </span>
         </div>
 
-        {/* Four of the picks can be one game script. The board had this warning;
-            the page people actually read did not. */}
-        <ScriptBanner rows={props} noun="picks" />
-
         {props.length === 0 ? (
-          fit && fit.n > 0 && fit.weight === 0 ? (
-            <Empty
-              title="Nothing beats the market yet"
-              source="SignalResult (Neon)"
-              hint={`Picks are ranked on the model blended with the market, at the weight the model has earned on settled contracts. Across ${fit.n.toLocaleString()} settled markets the market was the better forecaster${
-                fit.brierMarket !== null && fit.brierModel !== null
-                  ? ` (Brier ${fit.brierMarket.toFixed(4)} against the model's ${fit.brierModel.toFixed(4)})`
-                  : ""
-              }, so that weight is 0% — and at 0% no price clears its own spread and fee. This list fills again only when the model beats the market on results, not when it merely disagrees. Every projection is still on the board.`}
-            />
-          ) : (
-            <Empty
-              title="No prop clears its own fee"
-              source="Signal (Neon)"
-              hint="A prop appears here when the model, blended with the market at the weight it has earned, beats the ask by more than the fee. Either no market is quoted yet, or nothing is currently mispriced enough to be worth listing."
-            />
-          )
-        ) : (
-          <TopPickList picks={props} />
-        )}
-        <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
-          The multiple is Kalshi&apos;s own figure — what a dollar returns if the
-          contract settles — and it carries no opinion: a long shot always shows a big
-          one. The edge beside it is <strong className="font-medium">anchored to the
-          market</strong>: the model&apos;s probability blended with the book&apos;s mid at
-          the weight the model has earned on settled contracts
-          {fit ? ` (currently ${pct(fit.weight)} model, fitted on ${fit.n.toLocaleString()} settled markets)` : ""},
-          net of the exact taker fee.
-        </p>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
-          Kalshi is an exchange, so every contract needs someone on the other side.
-          Books wider than {MAX_SPREAD_CENTS}¢ are held back: the claim here is that the
-          model disagrees with the market, and a book quoted 5¢ against 34¢ has no market
-          price to disagree with. Volume is shown so a quote nobody has taken is
-          distinguishable from one hundreds of people have.
-        </p>
-        {withheld > 0 ? (
-          <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
-            <strong className="font-medium text-ink-2">
-              {withheld} {SUPPRESSED_LABEL} pick{withheld === 1 ? "" : "s"} held back.
-            </strong>{" "}
-            {SUPPRESSED_WHY}{" "}
-            <Link href="/board" className="text-steel underline-offset-2 hover:underline">
-              Still on the board →
+          <p className="rounded border border-line bg-card px-3 py-2 text-[11.5px] leading-relaxed text-ink-2">
+            Nothing, right now. A projection only lands here when it still beats the ask
+            after the fee once blended with the market at the weight the model has earned
+            on settled contracts
+            {fit && fit.n > 0
+              ? ` — across ${fit.n.toLocaleString()} settled markets the market forecast better${
+                  fit.brierMarket !== null && fit.brierModel !== null
+                    ? ` (Brier ${fit.brierMarket.toFixed(4)} against ${fit.brierModel.toFixed(4)})`
+                    : ""
+                }, so that weight is ${pct(fit.weight)}`
+              : ""}
+            . That is a statement about <em>prices</em>, not about the projections above:
+            the market has already priced what the model expects.{" "}
+            <Link href="/track-record" className="text-steel underline-offset-2 hover:underline">
+              Track record →
             </Link>
           </p>
-        ) : null}
-        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
-          The projection is the model&apos;s central estimate for the whole game; the
-          line beside it is whichever quoted strike that estimate disagrees with most
-          after the exact taker fee. Every one of these is{" "}
-          <strong className="font-medium">unvalidated</strong> until 200 settled
-          contracts show positive closing-line value — the tier badge says where each
-          one stands. <Link href="/board" className="text-steel underline-offset-2 hover:underline">Every strike →</Link>
-        </p>
+        ) : (
+          <>
+            <ScriptBanner rows={props} noun="picks" />
+            <TopPickList picks={props} />
+          </>
+        )}
       </section>
 
       {/* ---------------------------------------------------------------- spreads */}

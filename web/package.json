@@ -14,7 +14,8 @@
     "check:edge": "node --experimental-strip-types scripts/check-edge.mjs",
     "check:games": "node --experimental-strip-types scripts/check-game-match.mjs",
     "check:script": "node --experimental-strip-types scripts/check-concentration.mjs",
-    "check:anchor": "node --experimental-strip-types scripts/check-anchor.mjs"
+    "check:anchor": "node --experimental-strip-types scripts/check-anchor.mjs",
+    "check:expect": "node --experimental-strip-types scripts/check-expectation.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
