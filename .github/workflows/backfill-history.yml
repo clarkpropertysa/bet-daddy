@@ -21,7 +21,14 @@ on:
     # */15-style schedule actually lands every 2-6 hours. Since this job is the
     # durable path for price history, it runs on a denser schedule so that even a
     # heavily-thinned firing rate still lands several times a day.
-    - cron: "37 1,5,9,13,17,21 * * *"
+    # ONE SHORT CATCH-UP A DAY, ONE FULL SWEEP A WEEK. This ran six times a day over a
+    # 21-day window at ~33 minutes a run: about 6,000 Actions minutes a month against a
+    # 2,000-minute allowance, and it exhausted the account. Nothing was gained by it --
+    # the header above explains why: candlesticks are fetchable retroactively for ~22
+    # days, so one success inside that window loses nothing. The daily run covers three
+    # days for margin against dropped firings; Sunday's re-walks the whole window.
+    - cron: "37 9 * * *"
+    - cron: "17 10 * * 0"
   workflow_dispatch:
 
 concurrency:
@@ -43,7 +50,11 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-        run: uv run python -m pipeline.ingest.kalshi_backfill --days 21
+        run: |
+          # Sunday re-walks the full retention window; every other day catches up on
+          # what settled since the last run, with margin for a skipped firing.
+          if [ "$(date -u +%u)" = "7" ]; then DAYS=21; else DAYS=3; fi
+          uv run python -m pipeline.ingest.kalshi_backfill --days "$DAYS"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -25,9 +25,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/raw/nflverse
-          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-${{ github.run_id }}
+          # NOT keyed on run_id. That made the primary key miss every single time, so
+          # every run restored the cache and then UPLOADED a fresh copy of the whole
+          # parquet directory -- paying twice, on three workflows, for a cache that
+          # never hit. Keyed on the ingest module, the cache saves once per change and
+          # the ingest step below still fetches whatever is new.
+          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}
           restore-keys: |
-            nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-
+            nflverse-
 
       - name: Ingest nflverse release parquet
         env:

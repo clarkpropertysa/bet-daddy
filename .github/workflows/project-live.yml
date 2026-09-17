@@ -12,7 +12,17 @@ on:
     # minutes and actually fires roughly every 2-3 hours. Treat the cron as an
     # upper bound on frequency, never a guarantee, and read priceAsOf on the board
     # for what is actually true.
-    - cron: "7 * * * *"
+    # HOURLY ONLY WHEN GAMES ARE NEAR. An hourly run all week cost ~10 minutes a firing
+    # for a board nobody was reading on a Tuesday. Kickoff windows (UTC): Sunday from
+    # 16:00, Monday to 04:00 for the late games, Thursday/Friday evening for the opener.
+    # EVERY TWO HOURS, not hourly, even on Sunday. Top Picks now leads with projections,
+    # and a projection does not move between kickoffs -- only the price does, and the
+    # price-led section is empty while the model has no earned weight.
+    - cron: "7 16,18,20,22 * * 0"   # Sunday afternoon and evening games
+    - cron: "7 0,2,4 * * 1,2"       # Sunday night and Monday night, in UTC
+    - cron: "7 23 * * 4"            # Thursday night kickoff
+    - cron: "7 1,3 * * 5"           # ...and its second half, in UTC
+    - cron: "7 12 * * *"            # one heartbeat a day the rest of the week
   workflow_dispatch:
 
 # Two repricing runs overlapping would race each other to the same tickers.
@@ -39,9 +49,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/raw/nflverse
-          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-${{ github.run_id }}
+          # NOT keyed on run_id. That made the primary key miss every single time, so
+          # every run restored the cache and then UPLOADED a fresh copy of the whole
+          # parquet directory -- paying twice, on three workflows, for a cache that
+          # never hit. Keyed on the ingest module, the cache saves once per change and
+          # the ingest step below still fetches whatever is new.
+          key: nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}
           restore-keys: |
-            nflverse-${{ hashFiles('pipeline/ingest/nflverse.py') }}-
+            nflverse-
 
       - name: Fetch the parquet the projection reads
         env:

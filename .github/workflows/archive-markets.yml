@@ -12,7 +12,15 @@ name: archive-markets
 
 on:
   schedule:
-    - cron: "9,24,39,54 * * * *"
+    # Every 15 minutes is only worth paying for while prices are moving. Outside the
+    # windows below a missed tick costs nothing recoverable -- backfill-history rebuilds
+    # 1-minute candles for ~22 days -- and what is uniquely lost, orderbook depth, is
+    # worth less than the Actions minutes it was costing.
+    - cron: "9,24,39,54 16-23 * * 0"   # Sunday games
+    - cron: "9,24,39,54 0-4 * * 1,2"   # Sunday night, Monday night
+    - cron: "9,39 23 * * 4"            # Thursday night
+    - cron: "9,39 0-3 * * 5"
+    - cron: "24 */4 * * *"             # otherwise, a snapshot every four hours
   workflow_dispatch:
 
 concurrency:

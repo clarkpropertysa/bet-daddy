@@ -3316,3 +3316,38 @@ so Top Picks is empty and says why, with the Brier figures, instead of looking b
 Every projection stays on the board. The list fills again only when the model beats the
 market on results -- which, if it ever happens, is the first genuine evidence of an edge
 this project will have produced.
+
+## The Actions allowance ran out, and most of it was being spent on nothing
+
+Runs started failing with no logs after five seconds — GitHub refusing to start jobs
+because the account had hit its Actions limit. A private repo gets 2,000 minutes a month.
+Measured per-run cost, and where it was going:
+
+    backfill-history   33.0 min  x 6/day   =  ~6,000 min/month
+    project-live        8.7 min  x hourly  =  ~2,100
+    ingest-nflverse     5.3 min  x daily   =    ~160
+    archive-markets     1.6 min  x */15    =  ~1,000+ (scheduler-throttled)
+
+**backfill-history was the whole problem, and its own header said so.** It re-fetched a
+21-day candlestick window six times a day, while the comment at the top of the file
+explains that candles are fetchable retroactively for ~22 days, so "one success every
+three weeks is sufficient". It now catches up 3 days daily and re-walks the full window
+on Sundays.
+
+**The cache never hit, on three workflows.** The key ended in `${{ github.run_id }}`, so
+the primary key missed every single run: each one restored the parquet directory from
+`restore-keys` and then uploaded a fresh copy of it, paying both ways for a cache that
+could never hit. Keyed on the ingest module it saves once per change, and the ingest step
+still fetches whatever is new.
+
+**Cadence now follows kickoffs rather than the clock.** Repricing runs every two hours
+inside game windows and once a day otherwise; the archiver keeps its 15-minute cadence
+while games are live and drops to four-hourly outside them. Two hours is enough because
+Top Picks now leads with projections, which do not move between kickoffs -- only prices
+do, and the price-led section is empty while the model has no earned weight. Documentation
+pushes no longer run `checks`, which was fetching a season of parquet to prove a
+DECISIONS.md entry had not broken the edge formula.
+
+Estimated 422 minutes a week, about 1,830 a month against the 2,000 allowance, and
+GitHub's throttling of scheduled runs on private repos leaves further margin. The honest
+caveat: that is an estimate from measured per-run times, not a bill.
