@@ -6,6 +6,7 @@ import { eventMatchesGame, tickerMatchesGame } from "@/lib/markets";
 import { isSuppressed } from "@/lib/suppressed";
 import { anchoredEdge, anchorWeight } from "@/lib/anchor";
 import { expectationFrom, type Expectation, type LadderPoint } from "@/lib/expectation";
+import type { ReliabilityTable } from "@/lib/confidence";
 import { gameFromTicker } from "@/lib/markets";
 
 /** Same threshold the Python job applies. Recomputed here because a live price can
@@ -415,6 +416,49 @@ export async function getModelView(perGame = 12): Promise<ModelGame[]> {
         .slice(0, perGame),
     }))
     .sort((a, b) => (a.kickoff?.getTime() ?? 0) - (b.kickoff?.getTime() ?? 0));
+}
+
+/**
+ * HOW MUCH THE MODEL'S OWN PROBABILITIES HAVE BEEN WORTH, from settled contracts.
+ *
+ * One cell per (family, side, 10-point band of the stated probability), plus the same
+ * aggregated across families and across sides so a claim with no exact cell still gets an
+ * honest fallback rather than silence -- or worse, a number from a different kind of claim.
+ *
+ * Week 1: a receptions under at 66% happened 44% of the time; a receiving-yards under at
+ * 95% happened 87%. Same model, same page, very different things to believe.
+ */
+export async function getReliability(): Promise<ReliabilityTable> {
+  const rows = await prisma.$queryRaw<
+    { family: string; side: string; band: number; n: bigint; stated: number; actual: number }[]
+  >`
+    with graded as (
+      select pr."marketType"::text as family, s.side,
+             least(4, greatest(0, floor((s."modelProb"::float8 - 0.5) * 10 + 1e-9)))::int as band,
+             s."modelProb"::float8 as stated,
+             (r."settledResult" = s.side)::int as hit
+      from "SignalResult" r
+      join "Signal" s on s.id = r."signalId"
+      join "Projection" pr on pr.id = s."projectionId"
+      where r."settledResult" in ('yes','no') and s."modelProb" >= 0.5
+    )
+    select family, side, band, count(*) as n,
+           avg(stated)::float8 as stated, avg(hit)::float8 as actual
+    from graded group by 1,2,3
+    union all
+    select '*', side, band, count(*), avg(stated)::float8, avg(hit)::float8
+    from graded group by 2,3
+    union all
+    select '*', '*', band, count(*), avg(stated)::float8, avg(hit)::float8
+    from graded group by 3
+  `;
+  const table: ReliabilityTable = new Map();
+  for (const r of rows) {
+    table.set(`${r.family}|${r.side}|${r.band}`, {
+      n: Number(r.n), stated: r.stated, actual: r.actual,
+    });
+  }
+  return table;
 }
 
 /** Most recent successful run per job, for the staleness banner. */

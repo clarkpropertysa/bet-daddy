@@ -4,7 +4,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { ScriptBanner } from "@/components/ScriptBanner";
 import { TopPickList } from "@/components/TopPickList";
 import { StaleBanner } from "@/components/StaleBanner";
-import { getJobHealth, getModelView, getNextSlate, getProjectionBoard } from "@/lib/queries";
+import {
+  getJobHealth,
+  getModelView,
+  getNextSlate,
+  getProjectionBoard,
+  getReliability,
+} from "@/lib/queries";
 import { ModelView } from "@/components/ModelView";
 import { isSuppressed, SUPPRESSED_LABEL, SUPPRESSED_WHY } from "@/lib/suppressed";
 import { anchorFit } from "@/lib/anchor";
@@ -32,7 +38,7 @@ const MAX_SPREAD_CENTS = 15;
 const TOP_PICKS = 15;
 
 export default async function TopPicksPage() {
-  const [rows, expected, slate, health] = await Promise.all([
+  const [rows, expected, reliability, slate, health] = await Promise.all([
     // One row per PROJECTION. A ticker is unique per strike, so ranking raw signals
     // let a single player's twenty-rung ladder take most of the list -- twenty copies
     // of one opinion, presented as twenty opportunities.
@@ -41,6 +47,8 @@ export default async function TopPicksPage() {
     getProjectionBoard(80),
     // What the model expects, with no reference to price -- the page's lead section.
     getModelView(),
+    // What the model's own percentages have been worth, from settled contracts.
+    getReliability(),
     getNextSlate(),
     getJobHealth(),
   ]);
@@ -200,7 +208,9 @@ export default async function TopPicksPage() {
           about. Against the honest baseline — how often a player has already cleared a
           line — the projections beat the box score by 21% over 2025. The percentages run
           confident: across Week 1 the model said 53% on the calls it wanted to make and
-          37% of them happened, so read a 78% as &quot;likely&quot;, not as 78 in 100.
+          37% of them happened. The last column does that arithmetic per claim: it looks up
+          how claims of the same kind — same market, same side, same confidence band — have
+          actually settled, and shows what that history makes of this one.
         </p>
 
         {expected.length === 0 ? (
@@ -210,7 +220,7 @@ export default async function TopPicksPage() {
             hint="Projections appear once the week's markets are listed and the projection job has run. Markets are listed well before they are priced."
           />
         ) : (
-          <ModelView games={expected} />
+          <ModelView games={expected} reliability={reliability} />
         )}
       </section>
 

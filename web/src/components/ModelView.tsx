@@ -6,6 +6,7 @@ import { WhyPanel, type WhyRow } from "@/components/WhyPanel";
 import { projected, strikeLabel } from "@/lib/format";
 import { labelFor } from "@/lib/markets";
 import { isSuppressed } from "@/lib/suppressed";
+import { confidenceOf, GRADE_WORDS, type ReliabilityTable } from "@/lib/confidence";
 import type { ModelClaim, ModelGame } from "@/lib/queries";
 
 /**
@@ -19,7 +20,9 @@ import type { ModelClaim, ModelGame } from "@/lib/queries";
  * A projection with neither is still listed, as "no confident call" -- that is information
  * about the model, and dropping the row would make the page look surer than the model is.
  */
-export function ModelView({ games }: { games: ModelGame[] }) {
+export function ModelView({
+  games, reliability,
+}: { games: ModelGame[]; reliability: ReliabilityTable }) {
   const [active, setActive] = useState<WhyRow | null>(null);
 
   return (
@@ -42,12 +45,19 @@ export function ModelView({ games }: { games: ModelGame[] }) {
                     <th className="eyebrow px-3 py-2">Over it clears</th>
                     <th className="eyebrow px-3 py-2">Under it stays</th>
                     <th className="eyebrow px-3 py-2 text-right">Surer side</th>
+                    {/* Not the model's opinion of itself: what claims like it have done. */}
+                    <th className="eyebrow px-3 py-2 text-right">Track record says</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
                   {g.claims.map((c) => (
-                    <Row key={c.key} c={c} onOpen={() => setActive(c.row)} />
+                    <Row
+                      key={c.key}
+                      c={c}
+                      reliability={reliability}
+                      onOpen={() => setActive(c.row)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -60,7 +70,9 @@ export function ModelView({ games }: { games: ModelGame[] }) {
   );
 }
 
-function Row({ c, onOpen }: { c: ModelClaim; onOpen: () => void }) {
+function Row({
+  c, reliability, onOpen,
+}: { c: ModelClaim; reliability: ReliabilityTable; onOpen: () => void }) {
   const { floor, ceiling } = c.expectation;
   // Both sides clear the same bar, so name the one the model is more sure of and say it
   // as a side -- "over" or "under" -- rather than leaving it to be inferred from a colour.
@@ -74,6 +86,11 @@ function Row({ c, onOpen }: { c: ModelClaim; onOpen: () => void }) {
         : ceiling
           ? { word: "under", p: ceiling.p }
           : null;
+
+  // What the track record makes of the side it is surer about.
+  const conf = surer
+    ? confidenceOf(reliability, c.marketType, surer.word === "over" ? "yes" : "no", surer.p)
+    : null;
 
   return (
     <tr
@@ -151,6 +168,39 @@ function Row({ c, onOpen }: { c: ModelClaim; onOpen: () => void }) {
           </span>
         ) : (
           <span className="eyebrow">no confident call</span>
+        )}
+      </td>
+
+      <td className="px-3 py-2 text-right">
+        {conf ? (
+          <>
+            <span
+              className={`display block text-[13px] ${
+                conf.grade === "solid"
+                  ? "text-ink"
+                  : conf.grade === "shaky"
+                    ? "text-warn"
+                    : conf.grade === "poor"
+                      ? "text-neg"
+                      : "text-ink-3"
+              }`}
+            >
+              {conf.grade === "untested"
+                ? "untested"
+                : `${(conf.adjusted * 100).toFixed(0)}%`}
+            </span>
+            <span className="eyebrow" title={
+              conf.basis
+                ? `Claims like this one: said ${(conf.basis.stated * 100).toFixed(0)}%, happened ${(conf.basis.actual * 100).toFixed(0)}% over ${conf.basis.n} settled contracts.`
+                : "No settled contracts of this kind yet."
+            }>
+              {conf.grade === "untested"
+                ? "no settled sample"
+                : `${GRADE_WORDS[conf.grade]} · n=${conf.basis?.n ?? 0}`}
+            </span>
+          </>
+        ) : (
+          <span className="text-ink-3">—</span>
         )}
       </td>
 
